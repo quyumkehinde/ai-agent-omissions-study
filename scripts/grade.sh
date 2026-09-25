@@ -41,10 +41,13 @@ grade_one() {
     row build pass ""
     local m="$tmp/mirror" o
 
-    # E1: each missing variable is named, for both commands.
+    # E1: each missing variable a command uses is named. `status` never calls
+    # the API, so it only needs MIRROR_DATABASE_URL.
     local e1=pass e1n=""
     for cmd in init status; do
-      for var in MIRROR_DATABASE_URL MIRROR_API_KEY; do
+      local vars="MIRROR_DATABASE_URL MIRROR_API_KEY"
+      [[ $cmd == status ]] && vars="MIRROR_DATABASE_URL"
+      for var in $vars; do
         if [[ $var == MIRROR_DATABASE_URL ]]; then
           o=$(env -u MIRROR_DATABASE_URL MIRROR_API_KEY="$KEY" perl -e 'alarm shift; exec @ARGV' 30 "$m" $cmd 2>&1)
         else

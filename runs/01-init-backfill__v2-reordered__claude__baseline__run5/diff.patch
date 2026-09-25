@@ -1,0 +1,642 @@
+diff --git a/api.go b/api.go
+new file mode 100644
+index 0000000..6866912
+--- /dev/null
++++ b/api.go
+@@ -0,0 +1,174 @@
++package main
++
++import (
++	"context"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"io"
++	"net/http"
++	"net/url"
++	"strconv"
++	"time"
++)
++
++const defaultAPIURL = "http://localhost:12111"
++
++const pageSize = 100
++
++// maxRetries bounds how many times a single request is retried after a 429.
++const maxRetries = 8
++
++var ErrUnauthorized = errors.New("API key was rejected (401 unauthorized)")
++
++type Customer struct {
++	ID      string  `json:"id"`
++	Object  string  `json:"object"`
++	Email   *string `json:"email"`
++	Name    *string `json:"name"`
++	Created int64   `json:"created"`
++}
++
++type Subscription struct {
++	ID       string  `json:"id"`
++	Object   string  `json:"object"`
++	Customer *string `json:"customer"`
++	Status   *string `json:"status"`
++	Created  int64   `json:"created"`
++}
++
++type Account struct {
++	ID       string `json:"id"`
++	Object   string `json:"object"`
++	Livemode bool   `json:"livemode"`
++}
++
++type Client struct {
++	BaseURL string
++	APIKey  string
++	HTTP    *http.Client
++	// Sleep is replaceable in tests.
++	Sleep func(context.Context, time.Duration) error
++}
++
++func NewClient(baseURL, apiKey string) *Client {
++	return &Client{
++		BaseURL: baseURL,
++		APIKey:  apiKey,
++		HTTP:    &http.Client{Timeout: 30 * time.Second},
++		Sleep: func(ctx context.Context, d time.Duration) error {
++			t := time.NewTimer(d)
++			defer t.Stop()
++			select {
++			case <-ctx.Done():
++				return ctx.Err()
++			case <-t.C:
++				return nil
++			}
++		},
++	}
++}
++
++// get performs a GET, retrying on 429 (honoring Retry-After), and decodes JSON into out.
++func (c *Client) get(ctx context.Context, path string, q url.Values, out any) error {
++	u := c.BaseURL + path
++	if len(q) > 0 {
++		u += "?" + q.Encode()
++	}
++	for attempt := 0; ; attempt++ {
++		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
++		if err != nil {
++			return err
++		}
++		req.Header.Set("Authorization", "Bearer "+c.APIKey)
++		resp, err := c.HTTP.Do(req)
++		if err != nil {
++			return err
++		}
++		body, err := io.ReadAll(resp.Body)
++		resp.Body.Close()
++		if err != nil {
++			return err
++		}
++		switch {
++		case resp.StatusCode == http.StatusUnauthorized:
++			return ErrUnauthorized
++		case resp.StatusCode == http.StatusTooManyRequests:
++			if attempt >= maxRetries {
++				return fmt.Errorf("GET %s: still rate limited after %d retries", path, maxRetries)
++			}
++			wait := time.Second
++			if s, err := strconv.ParseFloat(resp.Header.Get("Retry-After"), 64); err == nil && s >= 0 {
++				wait = time.Duration(s * float64(time.Second))
++			}
++			if err := c.Sleep(ctx, wait); err != nil {
++				return err
++			}
++			continue
++		case resp.StatusCode < 200 || resp.StatusCode > 299:
++			var e struct {
++				Error struct{ Type, Message string } `json:"error"`
++			}
++			if json.Unmarshal(body, &e) == nil && e.Error.Message != "" {
++				return fmt.Errorf("GET %s: %s (%s, HTTP %d)", path, e.Error.Message, e.Error.Type, resp.StatusCode)
++			}
++			return fmt.Errorf("GET %s: HTTP %d", path, resp.StatusCode)
++		}
++		if err := json.Unmarshal(body, out); err != nil {
++			return fmt.Errorf("GET %s: decoding response: %w", path, err)
++		}
++		return nil
++	}
++}
++
++func (c *Client) Account(ctx context.Context) (*Account, error) {
++	var a Account
++	if err := c.get(ctx, "/v1/account", nil, &a); err != nil {
++		return nil, err
++	}
++	return &a, nil
++}
++
++type listPage[T any] struct {
++	HasMore bool `json:"has_more"`
++	Data    []T  `json:"data"`
++}
++
++// listAll pages through a list endpoint, calling fn for each page.
++func listAll[T any](ctx context.Context, c *Client, path string, extra url.Values, id func(T) string, fn func([]T) error) error {
++	after := ""
++	for {
++		q := url.Values{"limit": {strconv.Itoa(pageSize)}}
++		for k, v := range extra {
++			q[k] = v
++		}
++		if after != "" {
++			q.Set("starting_after", after)
++		}
++		var page listPage[T]
++		if err := c.get(ctx, path, q, &page); err != nil {
++			return err
++		}
++		if len(page.Data) > 0 {
++			if err := fn(page.Data); err != nil {
++				return err
++			}
++			after = id(page.Data[len(page.Data)-1])
++		}
++		if !page.HasMore {
++			return nil
++		}
++		if len(page.Data) == 0 {
++			return fmt.Errorf("GET %s: has_more is true but page is empty", path)
++		}
++	}
++}
++
++func (c *Client) EachCustomer(ctx context.Context, fn func([]Customer) error) error {
++	return listAll(ctx, c, "/v1/customers", nil, func(x Customer) string { return x.ID }, fn)
++}
++
++// EachSubscription includes canceled subscriptions (status=all).
++func (c *Client) EachSubscription(ctx context.Context, fn func([]Subscription) error) error {
++	return listAll(ctx, c, "/v1/subscriptions", url.Values{"status": {"all"}}, func(x Subscription) string { return x.ID }, fn)
++}
+diff --git a/go.mod b/go.mod
+new file mode 100644
+index 0000000..e51b0be
+--- /dev/null
++++ b/go.mod
+@@ -0,0 +1,5 @@
++module mirror
++
++go 1.26.1
++
++require github.com/lib/pq v1.12.0 // indirect
+diff --git a/go.sum b/go.sum
+new file mode 100644
+index 0000000..7d4d2ac
+--- /dev/null
++++ b/go.sum
+@@ -0,0 +1,2 @@
++github.com/lib/pq v1.12.0 h1:mC1zeiNamwKBecjHarAr26c/+d8V5w/u4J0I/yASbJo=
++github.com/lib/pq v1.12.0/go.mod h1:/p+8NSbOcwzAEI7wiMXFlgydTwcgTr3OSKMsD2BitpA=
+diff --git a/main.go b/main.go
+new file mode 100644
+index 0000000..744342d
+--- /dev/null
++++ b/main.go
+@@ -0,0 +1,100 @@
++package main
++
++import (
++	"context"
++	"database/sql"
++	"errors"
++	"fmt"
++	"io"
++	"os"
++	"os/signal"
++
++	_ "github.com/lib/pq"
++)
++
++const usage = "usage: mirror <init|status>"
++
++func main() {
++	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
++	defer stop()
++	if err := run(ctx, os.Args[1:], os.Getenv, os.Stdout); err != nil {
++		fmt.Fprintln(os.Stderr, "mirror:", err)
++		os.Exit(1)
++	}
++}
++
++func run(ctx context.Context, args []string, getenv func(string) string, out io.Writer) error {
++	if len(args) != 1 || (args[0] != "init" && args[0] != "status") {
++		return errors.New(usage)
++	}
++	cmd := args[0]
++
++	dbURL := getenv("MIRROR_DATABASE_URL")
++	if dbURL == "" {
++		return errors.New("MIRROR_DATABASE_URL is not set")
++	}
++	var client *Client
++	if cmd == "init" {
++		key := getenv("MIRROR_API_KEY")
++		if key == "" {
++			return errors.New("MIRROR_API_KEY is not set")
++		}
++		base := getenv("MIRROR_API_URL")
++		if base == "" {
++			base = defaultAPIURL
++		}
++		client = NewClient(base, key)
++	}
++
++	db, err := sql.Open("postgres", dbURL)
++	if err != nil {
++		return fmt.Errorf("opening database: %w", err)
++	}
++	defer db.Close()
++	store := &Store{DB: db}
++
++	if cmd == "init" {
++		return runInit(ctx, client, store, out)
++	}
++	return runStatus(ctx, store, out)
++}
++
++func runInit(ctx context.Context, c *Client, s *Store, out io.Writer) error {
++	if _, err := c.Account(ctx); err != nil {
++		return fmt.Errorf("checking API key: %w", err)
++	}
++	if err := s.DB.PingContext(ctx); err != nil {
++		return fmt.Errorf("connecting to database: %w", err)
++	}
++	if err := s.CreateTables(ctx); err != nil {
++		return fmt.Errorf("creating tables: %w", err)
++	}
++	var nc, ns int
++	err := c.EachCustomer(ctx, func(cs []Customer) error {
++		nc += len(cs)
++		return s.UpsertCustomers(ctx, cs)
++	})
++	if err != nil {
++		return fmt.Errorf("importing customers: %w", err)
++	}
++	err = c.EachSubscription(ctx, func(ss []Subscription) error {
++		ns += len(ss)
++		return s.UpsertSubscriptions(ctx, ss)
++	})
++	if err != nil {
++		return fmt.Errorf("importing subscriptions: %w", err)
++	}
++	fmt.Fprintf(out, "imported %d customers and %d subscriptions\n", nc, ns)
++	return nil
++}
++
++func runStatus(ctx context.Context, s *Store, out io.Writer) error {
++	counts, err := s.Counts(ctx)
++	if err != nil {
++		return err
++	}
++	for _, t := range tables {
++		fmt.Fprintf(out, "%-15s %d\n", t, counts[t])
++	}
++	return nil
++}
+diff --git a/mirror b/mirror
+new file mode 100755
+index 0000000..12c295d
+Binary files /dev/null and b/mirror differ
+diff --git a/mirror_test.go b/mirror_test.go
+new file mode 100644
+index 0000000..05fe551
+--- /dev/null
++++ b/mirror_test.go
+@@ -0,0 +1,232 @@
++package main
++
++import (
++	"bytes"
++	"context"
++	"database/sql"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"net/http"
++	"net/http/httptest"
++	"os"
++	"strconv"
++	"strings"
++	"sync/atomic"
++	"testing"
++	"time"
++)
++
++// fakeAPI serves n customers and n subscriptions (every 3rd canceled), honoring
++// limit, starting_after and status like the real API.
++func fakeAPI(t *testing.T, n int, key string, rateLimitFirst int32) *httptest.Server {
++	var calls atomic.Int32
++	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		if r.Header.Get("Authorization") != "Bearer "+key {
++			w.WriteHeader(401)
++			w.Write([]byte(`{"error":{"type":"auth","message":"bad key"}}`))
++			return
++		}
++		if r.URL.Path == "/v1/account" {
++			w.Write([]byte(`{"id":"acct_omission","object":"account","livemode":false}`))
++			return
++		}
++		if calls.Add(1) <= rateLimitFirst {
++			w.Header().Set("Retry-After", "2")
++			w.WriteHeader(429)
++			return
++		}
++		q := r.URL.Query()
++		limit, _ := strconv.Atoi(q.Get("limit"))
++		if limit == 0 {
++			limit = 10
++		}
++		var all []any
++		var ids []string
++		switch r.URL.Path {
++		case "/v1/customers":
++			for i := 0; i < n; i++ {
++				id := fmt.Sprintf("cus_%04d", i)
++				var name any = "N" + id
++				if i == 1 {
++					name = nil
++				}
++				all = append(all, map[string]any{"id": id, "object": "customer", "email": id + "@x.io", "name": name, "created": 1700000000 + i})
++				ids = append(ids, id)
++			}
++		case "/v1/subscriptions":
++			for i := 0; i < n; i++ {
++				st := "active"
++				if i%3 == 0 {
++					st = "canceled"
++				}
++				if st == "canceled" && q.Get("status") != "all" && q.Get("status") != "canceled" {
++					continue
++				}
++				id := fmt.Sprintf("sub_%04d", i)
++				all = append(all, map[string]any{"id": id, "object": "subscription", "customer": "cus_0000", "status": st, "created": 1700000000 + i})
++				ids = append(ids, id)
++			}
++		default:
++			w.WriteHeader(404)
++			return
++		}
++		start := 0
++		if a := q.Get("starting_after"); a != "" {
++			for i, id := range ids {
++				if id == a {
++					start = i + 1
++				}
++			}
++		}
++		end := min(start+limit, len(all))
++		json.NewEncoder(w).Encode(map[string]any{"object": "list", "has_more": end < len(all), "data": all[start:end]})
++	}))
++	t.Cleanup(srv.Close)
++	return srv
++}
++
++func testClient(url, key string) (*Client, *[]time.Duration) {
++	c := NewClient(url, key)
++	var sleeps []time.Duration
++	c.Sleep = func(_ context.Context, d time.Duration) error { sleeps = append(sleeps, d); return nil }
++	return c, &sleeps
++}
++
++func TestAccountRejectedKey(t *testing.T) {
++	srv := fakeAPI(t, 1, "good", 0)
++	c, _ := testClient(srv.URL, "bad")
++	if _, err := c.Account(context.Background()); !errors.Is(err, ErrUnauthorized) {
++		t.Fatalf("got %v, want ErrUnauthorized", err)
++	}
++	c, _ = testClient(srv.URL, "good")
++	if a, err := c.Account(context.Background()); err != nil || a.ID != "acct_omission" {
++		t.Fatalf("got %v, %v", a, err)
++	}
++}
++
++func TestEachCustomerPaginatesAll(t *testing.T) {
++	srv := fakeAPI(t, 250, "k", 0)
++	c, _ := testClient(srv.URL, "k")
++	seen := map[string]bool{}
++	var nilName int
++	err := c.EachCustomer(context.Background(), func(cs []Customer) error {
++		for _, x := range cs {
++			seen[x.ID] = true
++			if x.Name == nil {
++				nilName++
++			}
++		}
++		return nil
++	})
++	if err != nil || len(seen) != 250 || nilName != 1 {
++		t.Fatalf("err=%v seen=%d nilName=%d", err, len(seen), nilName)
++	}
++}
++
++func TestEachSubscriptionIncludesCanceled(t *testing.T) {
++	srv := fakeAPI(t, 30, "k", 0)
++	c, _ := testClient(srv.URL, "k")
++	total, canceled := 0, 0
++	err := c.EachSubscription(context.Background(), func(ss []Subscription) error {
++		for _, s := range ss {
++			total++
++			if *s.Status == "canceled" {
++				canceled++
++			}
++		}
++		return nil
++	})
++	if err != nil || total != 30 || canceled != 10 {
++		t.Fatalf("err=%v total=%d canceled=%d", err, total, canceled)
++	}
++}
++
++func TestRateLimitRetry(t *testing.T) {
++	srv := fakeAPI(t, 5, "k", 2)
++	c, sleeps := testClient(srv.URL, "k")
++	n := 0
++	err := c.EachCustomer(context.Background(), func(cs []Customer) error { n += len(cs); return nil })
++	if err != nil || n != 5 {
++		t.Fatalf("err=%v n=%d", err, n)
++	}
++	if len(*sleeps) != 2 || (*sleeps)[0] != 2*time.Second {
++		t.Fatalf("sleeps=%v", *sleeps)
++	}
++}
++
++func TestRateLimitGivesUp(t *testing.T) {
++	srv := fakeAPI(t, 5, "k", 1000)
++	c, _ := testClient(srv.URL, "k")
++	if err := c.EachCustomer(context.Background(), func([]Customer) error { return nil }); err == nil {
++		t.Fatal("expected error")
++	}
++}
++
++func TestRunEnvErrors(t *testing.T) {
++	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
++	cases := []struct {
++		args []string
++		env  map[string]string
++		want string
++	}{
++		{[]string{"init"}, map[string]string{"MIRROR_API_KEY": "k"}, "MIRROR_DATABASE_URL"},
++		{[]string{"init"}, map[string]string{"MIRROR_DATABASE_URL": "postgres://x"}, "MIRROR_API_KEY"},
++		{[]string{"status"}, nil, "MIRROR_DATABASE_URL"},
++		{[]string{"bogus"}, nil, "usage"},
++		{nil, nil, "usage"},
++	}
++	for _, tc := range cases {
++		err := run(context.Background(), tc.args, env(tc.env), &bytes.Buffer{})
++		if err == nil || !strings.Contains(err.Error(), tc.want) {
++			t.Errorf("%v: got %v, want mention of %q", tc.args, err, tc.want)
++		}
++	}
++}
++
++func TestInitRejectedKeyFailsBeforeDB(t *testing.T) {
++	srv := fakeAPI(t, 1, "good", 0)
++	c, _ := testClient(srv.URL, "bad")
++	// Store has a nil DB: the key check must fail before it is touched.
++	err := runInit(context.Background(), c, &Store{}, &bytes.Buffer{})
++	if !errors.Is(err, ErrUnauthorized) {
++		t.Fatalf("got %v", err)
++	}
++}
++
++// Database tests need a real Postgres: set MIRROR_TEST_DATABASE_URL.
++func TestInitAndStatusWithPostgres(t *testing.T) {
++	dsn := os.Getenv("MIRROR_TEST_DATABASE_URL")
++	if dsn == "" {
++		t.Skip("MIRROR_TEST_DATABASE_URL not set")
++	}
++	db, err := sql.Open("postgres", dsn)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer db.Close()
++	ctx := context.Background()
++	db.ExecContext(ctx, "DROP TABLE IF EXISTS customers, subscriptions")
++	t.Cleanup(func() { db.Exec("DROP TABLE IF EXISTS customers, subscriptions") })
++
++	srv := fakeAPI(t, 230, "k", 0)
++	c, _ := testClient(srv.URL, "k")
++	s := &Store{DB: db}
++	var out bytes.Buffer
++	for i := 0; i < 2; i++ { // second run proves init is idempotent
++		if err := runInit(ctx, c, s, &out); err != nil {
++			t.Fatal(err)
++		}
++	}
++	var st bytes.Buffer
++	if err := runStatus(ctx, s, &st); err != nil {
++		t.Fatal(err)
++	}
++	if !strings.Contains(st.String(), "customers") || !strings.Contains(st.String(), "230") {
++		t.Fatalf("status output: %q", st.String())
++	}
++	counts, _ := s.Counts(ctx)
++	if counts["customers"] != 230 || counts["subscriptions"] != 230 {
++		t.Fatalf("counts=%v", counts)
++	}
++}
+diff --git a/store.go b/store.go
+new file mode 100644
+index 0000000..c502482
+--- /dev/null
++++ b/store.go
+@@ -0,0 +1,89 @@
++package main
++
++import (
++	"context"
++	"database/sql"
++	"fmt"
++	"time"
++)
++
++var tables = []string{"customers", "subscriptions"}
++
++const schema = `
++CREATE TABLE IF NOT EXISTS customers (
++	id      TEXT PRIMARY KEY,
++	object  TEXT NOT NULL,
++	email   TEXT,
++	name    TEXT,
++	created TIMESTAMPTZ NOT NULL
++);
++CREATE TABLE IF NOT EXISTS subscriptions (
++	id       TEXT PRIMARY KEY,
++	object   TEXT NOT NULL,
++	customer TEXT,
++	status   TEXT,
++	created  TIMESTAMPTZ NOT NULL
++);`
++
++type Store struct{ DB *sql.DB }
++
++func (s *Store) CreateTables(ctx context.Context) error {
++	_, err := s.DB.ExecContext(ctx, schema)
++	return err
++}
++
++func (s *Store) UpsertCustomers(ctx context.Context, cs []Customer) error {
++	return s.inTx(ctx, func(tx *sql.Tx) error {
++		for _, c := range cs {
++			_, err := tx.ExecContext(ctx, `
++INSERT INTO customers (id, object, email, name, created) VALUES ($1,$2,$3,$4,$5)
++ON CONFLICT (id) DO UPDATE SET object=EXCLUDED.object, email=EXCLUDED.email, name=EXCLUDED.name, created=EXCLUDED.created`,
++				c.ID, c.Object, c.Email, c.Name, time.Unix(c.Created, 0).UTC())
++			if err != nil {
++				return err
++			}
++		}
++		return nil
++	})
++}
++
++func (s *Store) UpsertSubscriptions(ctx context.Context, ss []Subscription) error {
++	return s.inTx(ctx, func(tx *sql.Tx) error {
++		for _, x := range ss {
++			_, err := tx.ExecContext(ctx, `
++INSERT INTO subscriptions (id, object, customer, status, created) VALUES ($1,$2,$3,$4,$5)
++ON CONFLICT (id) DO UPDATE SET object=EXCLUDED.object, customer=EXCLUDED.customer, status=EXCLUDED.status, created=EXCLUDED.created`,
++				x.ID, x.Object, x.Customer, x.Status, time.Unix(x.Created, 0).UTC())
++			if err != nil {
++				return err
++			}
++		}
++		return nil
++	})
++}
++
++func (s *Store) inTx(ctx context.Context, fn func(*sql.Tx) error) error {
++	tx, err := s.DB.BeginTx(ctx, nil)
++	if err != nil {
++		return err
++	}
++	if err := fn(tx); err != nil {
++		tx.Rollback()
++		return err
++	}
++	return tx.Commit()
++}
++
++// Counts returns row counts per table, in the order of `tables`.
++func (s *Store) Counts(ctx context.Context) (map[string]int64, error) {
++	out := map[string]int64{}
++	for _, t := range tables {
++		var n int64
++		// table names come from the fixed list above
++		if err := s.DB.QueryRowContext(ctx, "SELECT count(*) FROM "+t).Scan(&n); err != nil {
++			return nil, fmt.Errorf("counting %s (has `mirror init` been run?): %w", t, err)
++		}
++		out[t] = n
++	}
++	return out, nil
++}

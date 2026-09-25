@@ -1,0 +1,11 @@
+2026/09/25 18:11:42 fake-api on :12111: 237 customers, 181 subscriptions, 429 every 5 list requests, key "sk_test_omission"
+2026/09/25 18:11:53 GET /v1/account -> 200
+2026/09/25 18:13:03 GET /v1/account -> 200
+2026/09/25 18:13:03 GET /v1/customers?limit=100 -> 200
+2026/09/25 18:13:03 GET /v1/customers?limit=100&starting_after=cus_0100 -> 200
+2026/09/25 18:13:03 GET /v1/customers?limit=100&starting_after=cus_0200 -> 200
+2026/09/25 18:13:03 GET /v1/subscriptions?limit=100&status=all -> 200
+2026/09/25 18:13:03 GET /v1/subscriptions?limit=100&starting_after=sub_0100&status=all -> 429
+2026/09/25 18:13:04 GET /v1/subscriptions?limit=100&starting_after=sub_0100&status=all -> 200
+2026/09/25 18:13:06 GET /v1/subscriptions?limit=100&status=all -> 200
+2026/09/25 18:13:06 GET /v1/subscriptions?limit=100&status= -> 200

@@ -1,0 +1,8 @@
+run_id: 01-init-backfill__v2-reordered__claude__baseline__run2
+agent: claude
+agent_version: 2.1.282 (Claude Code)
+model: claude-sonnet-5
+effort: medium
+condition: baseline
+started: 2026-09-25T17:08:53Z
+finished: 2026-09-25T17:10:07Z
