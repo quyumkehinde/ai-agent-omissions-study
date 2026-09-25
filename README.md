@@ -31,7 +31,7 @@ No benchmark I found isolates omission (a requirement with zero corresponding co
 1. On short, multi-requirement specs with a mix of explicit and implied requirements, how often does an agent's first "done" submission omit at least one requirement entirely?
 2. Do omissions cluster on implied requirements (never stated) versus explicit ones?
 3. Does the agent's own test suite or its "done" self-report ever flag an omission, or does it only ever pass on what it built?
-4. Does the way the same requirements are worded (numbered list or prose) change which requirements get omitted? Paleyes et al. show rewording changes the structure of generated code; this asks whether it changes what survives.
+4. Does the way the same requirements are worded (numbered list or terse) change which requirements get omitted? Paleyes et al. show rewording changes the structure of generated code; this asks whether it changes what survives.
 5. Is a peripheral requirement dropped more often when it sits mid-list among core ones than when it comes last? (From the BuildQL support-button case.)
 6. Does asking the agent to produce a requirement-to-code checklist before finishing reduce omissions?
 
@@ -54,7 +54,7 @@ Each spec has 4-6 explicit requirements, including at least one peripheral one, 
 
 1. **Numbered:** requirements as a numbered list, peripheral requirement last.
 2. **Reordered:** the same list with the peripheral requirement moved to the middle.
-3. **Prose:** the same requirements as a paragraph, no numbering.
+3. **Terse:** the same requirements compressed the way an engineer would type them (e.g. "then a backfill"). Fewer words, never fewer requirements.
 
 All versions are written and committed before any run so requirements can't shift after seeing output.
 
@@ -79,9 +79,10 @@ scripts/run.sh claude specs/01-init-backfill/v1-numbered.md baseline 1   # or: c
 Each run is isolated so no session can see another's context:
 
 - The workspace is a fresh directory outside this repo containing only `API.md`, so no `CLAUDE.md` or `AGENTS.md` is picked up. It is deleted after the run.
-- Claude Code runs with `--bare` (no auto-memory, hooks, plugins or `CLAUDE.md` discovery), `--disable-slash-commands`, `--strict-mcp-config`, `--no-session-persistence`, and a throwaway `CLAUDE_CONFIG_DIR`.
+- Claude Code runs from a dedicated, otherwise empty `CLAUDE_CONFIG_DIR` used only for the study, with auto-memory and `CLAUDE.md` loading disabled (`CLAUDE_CODE_DISABLE_AUTO_MEMORY`, `CLAUDE_CODE_DISABLE_CLAUDE_MDS`), plus `--disable-slash-commands`, `--strict-mcp-config` and `--no-session-persistence`.
 - Codex runs with a throwaway `CODEX_HOME` holding only credentials, plus `--ephemeral`, `--ignore-user-config` and `--ignore-rules`.
 - Postgres and the fake API are restarted per run, so every run sees identical data and the same 429 schedule.
+- Models are pinned: Claude Code uses `claude-sonnet-5`, Codex uses `gpt-5.6-terra`, both at medium reasoning effort. Neither CLI exposes temperature, so runs use each tool's default sampling, as a real user's would. Run-to-run variation is measured directly with 5 runs per version rather than removed.
 - `MIRROR_DATABASE_URL` and `MIRROR_API_KEY` are set in the agent's environment, as they would be on a real machine, so specs don't repeat them.
 
 Each run saves `prompt.md`, `transcript.jsonl`, `diff.patch`, the generated `code/`, the fake API's request log and `meta.yaml` (agent version, model, timestamps) under `runs/<spec>__<version>__<agent>__<condition>__run<n>/`. `pilot/` holds a throwaway spec for testing the harness; it isn't part of the study.
