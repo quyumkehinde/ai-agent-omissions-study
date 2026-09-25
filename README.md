@@ -82,6 +82,7 @@ Each run is isolated so no session can see another's context:
 - Claude Code runs from a dedicated, otherwise empty `CLAUDE_CONFIG_DIR` used only for the study, with auto-memory and `CLAUDE.md` loading disabled (`CLAUDE_CODE_DISABLE_AUTO_MEMORY`, `CLAUDE_CODE_DISABLE_CLAUDE_MDS`), plus `--disable-slash-commands`, `--strict-mcp-config` and `--no-session-persistence`.
 - Codex runs with a throwaway `CODEX_HOME` holding only credentials, plus `--ephemeral`, `--ignore-user-config` and `--ignore-rules`.
 - Postgres and the fake API are restarted per run, so every run sees identical data and the same 429 schedule.
+- Agents get unrestricted shell access inside their workspace (Claude Code in `bypassPermissions` mode, Codex in its `workspace-write` sandbox), so they can build, run and test their code the way they normally would. Web search is off for both, so the only inputs are the spec and `API.md`. An earlier harness restricted Claude Code to a short list of commands; it blocked ordinary work (heredocs, pipes, running the built binary), so those runs were discarded.
 - Models are pinned: Claude Code uses `claude-sonnet-5`, Codex uses `gpt-5.6-terra`, both at medium reasoning effort. Neither CLI exposes temperature, so runs use each tool's default sampling, as a real user's would. Run-to-run variation is measured directly with 5 runs per version rather than removed.
 - `MIRROR_DATABASE_URL` and `MIRROR_API_KEY` are set in the agent's environment, as they would be on a real machine, so specs don't repeat them.
 

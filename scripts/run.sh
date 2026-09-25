@@ -68,8 +68,7 @@ case "$agent" in
       --disable-slash-commands --strict-mcp-config --no-session-persistence \
       --model "$MODEL" --effort "$EFFORT" \
       --output-format stream-json --verbose \
-      --allowedTools "Read" "Write" "Edit" "Glob" "Grep" \
-        "Bash(go *)" "Bash(gofmt *)" "Bash(curl *)" "Bash(psql *)" "Bash(ls *)" "Bash(cat *)" "Bash(mkdir *)" \
+      --permission-mode bypassPermissions --disallowedTools WebSearch WebFetch \
       > "$out/transcript.jsonl") || echo "agent exited nonzero" >&2
     ;;
   codex)
