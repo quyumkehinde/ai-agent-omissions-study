@@ -1,2 +1,5 @@
 .DS_Store
 NOTES.md
+# Binaries agents built in their workspaces
+runs/*/code/mirror
+runs/*/code/main

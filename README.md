@@ -66,6 +66,7 @@ All versions are written and committed before any run so requirements can't shif
 - `docker-compose.yml`: Postgres for runs, reset between runs.
 - `runs/`: transcripts and generated code per run.
 - `labels/`: one rubric table per run (`TEMPLATE.md`).
+- `grades/`: black-box check results per run from `scripts/grade.sh` (spec 01): fresh database, missing env vars, wrong key, full import, canceled subscriptions, 429 recovery, `status` output and a second `init`. A grading aid; labels are assigned by reading the code, with these results as supporting evidence.
 
 Run the fake API with `cd fake-api && go run .` (flags: `-429-every`, `-customers`, `-subscriptions`). For spec 02, `go run ./sender` replays a fixed sequence of signed webhooks (valid, duplicate, bad signature, stale timestamp) against a receiver and prints each response next to the expected one. It is a grading aid and is never shown to agents.
 
