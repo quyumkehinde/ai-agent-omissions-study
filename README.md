@@ -8,7 +8,7 @@ Building Driftless (a Go service mirroring Stripe into Postgres, github.com/quyu
 
 This isn't new to me. At BuildQL (2023-2024) we generated tailored coding lessons from a company's documentation, and output quality was one of the issues that made us stop. The models then sometimes produced incorrect code. That got better, but they still sometimes missed things in the input when generating a lesson. In one, a user building an e-commerce app asked for a support feature alongside several others. The lesson added a support button that did nothing and never built the feature behind it. My guess is that it was dropped because there were a lot of features listed and support looked unimportant, but I never tested that.
 
-This is different from a bug. A bug is code that does the wrong thing. An omission is a requirement that never got translated into any code at all, so there is nothing to test wrong. Nobody writes a test for a feature that doesn't exist. I want to know how often this happens, under what conditions, and whether a cheap process change (asking the agent to check its own output against the spec before declaring done) catches it.
+This is different from a bug. A bug is code that does the wrong thing. An omission is a requirement that never got translated into any code at all, so there is nothing to test wrong. Nobody writes a test for a feature that doesn't exist. I want to know how often this happens and under what conditions.
 
 ## Related work
 
@@ -16,7 +16,7 @@ I searched for existing benchmarks on requirement coverage, instruction followin
 
 - [Clarity Is Not Assumed](https://arxiv.org/abs/2604.21505) (Orchid benchmark). Studies ambiguity degrading output. My requirements are stated clearly; I'm measuring dropped, not misread, requirements.
 - [ClarifyCodeBench](https://arxiv.org/abs/2607.00711). Tests whether models ask clarifying questions on vague specs. My specs are unambiguous on purpose; I test whether stated and implied requirements survive into the diff, not clarification behavior.
-- [A Unified Issue Resolution Benchmark for Requirement Clarification, Planning, and Code Generation](https://arxiv.org/abs/2608.09072) (SWE-RPG). Closest prior work: finds "implicit requirement recovery" is the biggest bottleneck (24.5-46% of failures) on real repo issues. I go smaller and narrower, hand-writing specs so ground truth is exact, and test a checklist intervention SWE-RPG doesn't.
+- [A Unified Issue Resolution Benchmark for Requirement Clarification, Planning, and Code Generation](https://arxiv.org/abs/2608.09072) (SWE-RPG). Closest prior work: finds "implicit requirement recovery" is the biggest bottleneck (24.5-46% of failures) on real repo issues. I go smaller and narrower, hand-writing specs so ground truth is exact, and vary only the wording of the same requirements.
 - [OctoBench](https://arxiv.org/abs/2601.10343). Measures compliance with structural/process constraints, not functional requirement completeness. Different failure target.
 - [Harness-IF](https://arxiv.org/abs/2608.11727). Tests whether agents follow instructions that contradict default behavior. My requirements aren't contradictory, there are just enough of them that some get dropped.
 - [HANDBOOK.md](https://arxiv.org/abs/2607.25398). Long policy documents (20-124 pages); finds agents lose rule details over long horizons. My tasks are short, single-session specs; I isolate omission under low context load, not long-horizon drift.
@@ -33,7 +33,6 @@ No benchmark I found isolates omission (a requirement with zero corresponding co
 3. Does the agent's own test suite or its "done" self-report ever flag an omission, or does it only ever pass on what it built?
 4. Does the way the same requirements are worded (numbered list or terse) change which requirements get omitted? Paleyes et al. show rewording changes the structure of generated code; this asks whether it changes what survives.
 5. Is a peripheral requirement dropped more often when it sits mid-list among core ones than when it comes last? (From the BuildQL support-button case.)
-6. Does asking the agent to produce a requirement-to-code checklist before finishing reduce omissions?
 
 ## Design
 
@@ -74,7 +73,7 @@ Run the fake API with `cd fake-api && go run .` (flags: `-429-every`, `-customer
 
 ```
 docker compose up -d                                         # Postgres (the run script resets it)
-scripts/run.sh claude specs/01-init-backfill/v1-numbered.md baseline 1   # or: codex, checklist
+scripts/run.sh claude specs/01-init-backfill/v1-numbered.md baseline 1   # or: codex
 ```
 
 Each run is isolated so no session can see another's context:
@@ -91,9 +90,9 @@ Each run saves `prompt.md`, `transcript.jsonl`, `diff.patch`, the generated `cod
 
 ## Agents and runs
 
-- **Claude Code** (primary, the incident source and my daily tool): 5 fresh-session runs per version, 2 specs x 3 versions x 5 = 30 runs. Checklist condition on version 1 only, 5 runs per spec = 10 runs.
+- **Claude Code** (primary, the incident source and my daily tool): 5 fresh-session runs per version, 2 specs x 3 versions x 5 = 30 runs.
 - **Codex CLI** (contrast, not a head-to-head comparison): 1 run per version = 6 runs.
-- 46 runs total. Each task is small (a few thousand tokens of spec plus generated code). Budget under $50; track actual spend.
+- 36 runs total. Each task is small (a few thousand tokens of spec plus generated code). Budget under $50; track actual spend.
 
 ## Omission vs wrong vs partial: definitions
 
@@ -109,10 +108,6 @@ Rubric applied by hand, one row per requirement per run, in a spreadsheet or pla
 
 Also recorded per run: whether the agent's own tests pass, and whether the agent's final message claims full completion. This checks whether tests or self-report would have caught the omission on their own.
 
-## Intervention: requirement checklist
-
-On version 1 of each spec, the prompt adds one line: before finishing, list every requirement from the spec and the file/line in the diff that implements it. Compare omission rate with and without this instruction, same agent, same specs, fresh sessions. This is the only intervention tested; it fits the time budget and is the most direct, cheap fix to try first.
-
 ## Metrics and honest reporting
 
 This is not statistically powered for strong claims. Report:
@@ -120,13 +115,12 @@ This is not statistically powered for strong claims. Report:
 - Raw counts: number of omissions / total requirements, broken out by explicit vs implied, by version, by agent, by spec
 - Whether the Driftless-shaped spec shows the same failure pattern as the original incident (yes/no, not a rate)
 - Omission and stub counts for the peripheral requirement in version 1 (last) vs version 2 (mid-list)
-- Omission rate with vs without the checklist intervention, as a count difference, with the caveat that 2 specs x 5 runs is too small to claim a general effect, only a directional one worth a bigger follow-up
 - At least 3-5 concrete examples (spec text, diff, and what's missing) shown in full, not just summarized, since the phenomenon is easier to see than to score
 - No p-values, no claims beyond what the counts show. If numbers are close, say so.
 
 ## Report
 
-Report outline: motivation and incident -> research questions -> method (specs, rubric, agents) -> related work -> results (counts, by version, examples, checklist comparison) -> threats to validity -> what this doesn't show -> future work.
+Report outline: motivation and incident -> research questions -> method (specs, rubric, agents) -> related work -> results (counts, by version, examples) -> threats to validity -> what this doesn't show -> future work.
 
 ## Threats to validity
 

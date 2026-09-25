@@ -35,7 +35,9 @@ grade_one() {
   disown $api_pid
   sleep 1
 
-  if ! (cd "$dir/code" && go build -o "$tmp/mirror" . >"$tmp/build.log" 2>&1); then
+  # Build the first main package, wherever the agent put it (e.g. cmd/mirror).
+  local pkg; pkg=$(cd "$dir/code" && go list -f '{{if eq .Name "main"}}{{.ImportPath}}{{end}}' ./... 2>/dev/null | head -1)
+  if ! (cd "$dir/code" && go build -o "$tmp/mirror" "${pkg:-.}" >"$tmp/build.log" 2>&1); then
     row build FAIL "$(head -3 "$tmp/build.log" | tr '\n' ' ')"
   else
     row build pass ""
