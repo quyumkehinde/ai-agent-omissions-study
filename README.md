@@ -1,139 +1,123 @@
-# Silent Omissions in AI Coding Agents: A Small Empirical Study
+# Silent Omissions in AI Coding Agents
 
-Status: in progress. Specs are frozen in the first commit, before any agent run.
+Do AI coding agents silently drop requirements? A small, hand-labeled study of 36 agent runs on two Go tasks, with the specs frozen before any run.
+
+## Summary
+
+- Claude Code (Sonnet 5) implemented every requirement in all 30 of its runs, across both tasks and all three wordings of each spec.
+- Codex (GPT-5.6-Terra) dropped the same requirement in all 3 of its runs on the webhook task: it never rejected requests with old timestamps, so a captured request could be replayed. Its tests passed and its final message said the work was done every time.
+- All 3 omissions were implied requirements (in the API docs, never in the spec). No explicit requirement was dropped in 180 chances.
+- Rewording the spec didn't change what got dropped. It changed one detail: when the spec didn't name a status code for a bad signature, all 5 Claude runs chose 401 instead of the 400 the other versions asked for.
+- The incident that motivated the study (below) didn't reproduce on a small, self-contained version of the task. That points at what surrounds a task (project size, existing code, session length) rather than how the task is worded. That's the next question.
+
+Full counts are in [RESULTS.md](RESULTS.md). Every label links to the code it's based on.
 
 ## Motivation
 
-Building Driftless (a Go service mirroring Stripe into Postgres, github.com/quyumkehinde/driftless) I asked Claude Code to implement an `init` command that included an initial backfill. It shipped `init` alone and silently dropped the backfill. Separately, it omitted a rate limiter until I named it explicitly. Both times the code was correct for a narrower reading of the task, and I only caught the gap by reading the code.
+While building [Driftless](https://github.com/quyumkehinde/driftless), a Go service that mirrors Stripe into Postgres, I asked Claude Code for an `init` command that included an initial backfill. It built `init` and silently left out the backfill. I caught it by reading the diff, before committing. Earlier, at BuildQL, where we generated coding lessons from product docs, a user asked for a support feature among several others and got a support button that did nothing.
 
-This isn't new to me. At BuildQL (2023-2024) we generated tailored coding lessons from a company's documentation, and output quality was one of the issues that made us stop. The models then sometimes produced incorrect code. That got better, but they still sometimes missed things in the input when generating a lesson. In one, a user building an e-commerce app asked for a support feature alongside several others. The lesson added a support button that did nothing and never built the feature behind it. My guess is that it was dropped because there were a lot of features listed and support looked unimportant, but I never tested that.
+An omission isn't a bug. A bug is code that does the wrong thing; an omission is a requirement with no code at all, so nothing tests it and nothing fails. I wanted to know how often that happens and what makes it more likely.
 
-This is different from a bug. A bug is code that does the wrong thing. An omission is a requirement that never got translated into any code at all, so there is nothing to test wrong. Nobody writes a test for a feature that doesn't exist. I want to know how often this happens and under what conditions.
+## Questions
 
-## Related work
-
-I searched for existing benchmarks on requirement coverage, instruction following, and silent failure in LLM code generation. Verified papers, each checked directly on arXiv:
-
-- [Clarity Is Not Assumed](https://arxiv.org/abs/2604.21505) (Orchid benchmark). Studies ambiguity degrading output. My requirements are stated clearly; I'm measuring dropped, not misread, requirements.
-- [ClarifyCodeBench](https://arxiv.org/abs/2607.00711). Tests whether models ask clarifying questions on vague specs. My specs are unambiguous on purpose; I test whether stated and implied requirements survive into the diff, not clarification behavior.
-- [A Unified Issue Resolution Benchmark for Requirement Clarification, Planning, and Code Generation](https://arxiv.org/abs/2608.09072) (SWE-RPG). Closest prior work: finds "implicit requirement recovery" is the biggest bottleneck (24.5-46% of failures) on real repo issues. I go smaller and narrower, hand-writing specs so ground truth is exact, and vary only the wording of the same requirements.
-- [OctoBench](https://arxiv.org/abs/2601.10343). Measures compliance with structural/process constraints, not functional requirement completeness. Different failure target.
-- [Harness-IF](https://arxiv.org/abs/2608.11727). Tests whether agents follow instructions that contradict default behavior. My requirements aren't contradictory, there are just enough of them that some get dropped.
-- [HANDBOOK.md](https://arxiv.org/abs/2607.25398). Long policy documents (20-124 pages); finds agents lose rule details over long horizons. My tasks are short, single-session specs; I isolate omission under low context load, not long-horizon drift.
-- [When Passing Tests Hides Vulnerabilities](https://arxiv.org/abs/2609.10548). Directly relevant: omission is 48.2% of silent failures in automated repair, and test-passing doesn't catch it. Larger scale (1,030 traces, 7 frameworks), security patches. Mine is small, from-scratch feature building, hand-designed specs instead of mined CVEs.
-- [Prompt Variability Effects On LLM Code Generation](https://arxiv.org/abs/2506.10204) (Paleyes, Sendyka, Robinson, Cabrera, Lawrence, Cambridge). Shows that typos, synonyms and paraphrases in a prompt change the structure of the generated code, measured by tree edit distance (TSED), and proposes persona-based prompts to test sensitivity to the user's background. It deliberately does not evaluate correctness. My study measures what it leaves out: whether each requirement survives into the code at all. Running its paraphrase augmentation on my specs, scoring requirement coverage instead of code similarity, is a natural follow-up.
-- [Confident and Wrong](https://arxiv.org/abs/2603.25764). Shows agents submit confidently and consistently even when wrong, across repeated runs. Supports running each spec multiple times and not trusting the "done" signal, but doesn't separate omission from other wrongness.
-
-No benchmark I found isolates omission (a requirement with zero corresponding code) from wrongness or ambiguity, at small scale, with hand-verified ground truth per requirement. That gap is the study.
-
-## Research questions
-
-1. On short, multi-requirement specs with a mix of explicit and implied requirements, how often does an agent's first "done" submission omit at least one requirement entirely?
-2. Do omissions cluster on implied requirements (never stated) versus explicit ones?
-3. Does the agent's own test suite or its "done" self-report ever flag an omission, or does it only ever pass on what it built?
-4. Does the way the same requirements are worded (numbered list or terse) change which requirements get omitted? Paleyes et al. show rewording changes the structure of generated code; this asks whether it changes what survives.
-5. Is a peripheral requirement dropped more often when it sits mid-list among core ones than when it comes last? (From the BuildQL support-button case.)
+1. How often does an agent's "done" submission leave out a requirement entirely?
+2. Are implied requirements dropped more than explicit ones?
+3. Do the agent's own tests or its final message ever reveal an omission?
+4. Does rewording the same requirements change which ones get dropped?
+5. Is a minor requirement dropped more often in the middle of a list than at the end?
 
 ## Design
 
-Two specs, each written three ways. The requirements and answer key stay fixed across the three versions; only the wording changes. That isolates wording from task, which a set of different specs can't do.
+**Two tasks**, both from Driftless's domain so I can grade every requirement:
 
-Go only, so language isn't a variable, and it's the language I know best to grade by hand (Terrace, Driftless).
+- **01, init with backfill:** a CLI whose `init` command checks config and an API key, creates tables and imports every record from a paginated API, plus a `status` command. Modeled on the Driftless incident.
+- **02, webhook receiver:** an HTTP service that verifies signed webhook events and stores them in Postgres, plus a health endpoint.
 
-### Specs
+Each has 5 explicit requirements and 2 or 3 implied ones that follow only from the API docs:
 
-- **01, init with backfill:** a CLI `init` command that validates config, creates tables and imports every existing record from a paginated API. Modeled on a Driftless incident where the agent built `init` and silently dropped the backfill. The original prompt was not saved, so this is a new spec written to the same shape, not a reproduction.
-- **02, webhook receiver:** a long-running HTTP service that receives and stores signed webhook events.
+- **Spec 01:** the API hides canceled subscriptions unless asked, it rate-limits with 429s, and a setup command gets re-run.
+- **Spec 02:** events can be delivered twice, and a signed request stays valid if resent later.
 
-Different kinds of task (a one-shot CLI job and a long-running service), both from the domain of Driftless, so every requirement is one I've built and can grade.
+**Three wordings per task**, with identical requirements:
 
-Each spec has 4-6 explicit requirements, including at least one peripheral one, and 1-3 implied requirements that are never stated but follow from the spec and the API documentation (e.g. "import every subscription" when the API omits canceled ones by default).
+1. **Numbered:** a numbered list, minor requirement last.
+2. **Reordered:** the same list with the minor requirement in the middle.
+3. **Terse:** compressed the way an engineer would type it ("then a backfill").
 
-### Versions
+**Runs:** Claude Code 5 times per wording (30 runs); Codex once per wording (6 runs, a contrast rather than a head-to-head). Models pinned to `claude-sonnet-5` and `gpt-5.6-terra`, both at medium effort. Neither CLI exposes temperature, so repeated runs measure variation instead.
 
-1. **Numbered:** requirements as a numbered list, peripheral requirement last.
-2. **Reordered:** the same list with the peripheral requirement moved to the middle.
-3. **Terse:** the same requirements compressed the way an engineer would type them (e.g. "then a backfill"). Fewer words, never fewer requirements.
+**Isolation:** each run starts in a fresh directory outside this repo with only the spec and `API.md`, a throwaway config (no memory, project instructions, plugins or MCP servers), no saved sessions and no web search. Postgres and a deterministic fake API are reset for every run. Agents have full shell access, as in normal use.
 
-All versions are written and committed before any run so requirements can't shift after seeing output.
+**Labels:** every requirement in every run is labeled Present, Wrong, Partial, Stub (code that does nothing) or Omitted. Labels are drafted with Claude from the code and the grader's results; I review each one against the code. [`scripts/grade.sh`](scripts/grade.sh) builds and runs each submission against a fresh database and checks each requirement from the outside. For the webhook task it replays valid, duplicate, badly signed and 10-minute-old events, and sends one event with Postgres stopped to check nothing is acknowledged before it's stored.
 
-## Repository layout
+## Results
 
-- `specs/<spec>/v<n>-<name>.md`: the prompts agents receive, one file per version. Frozen (committed) before the first run.
-- `answer-keys/`: every requirement per spec, explicit and implied, marked core or peripheral, plus expected ground truth. Never shown to agents.
-- `fake-api/`: a small deterministic Stripe-shaped API (Go) with `API.md`, the documentation agents see. Same data every run; list endpoints return a 429 on every 5th request; subscriptions omit canceled ones unless `status=all`, as Stripe does.
-- `docker-compose.yml`: Postgres for runs, reset between runs.
-- `runs/`: transcripts and generated code per run.
-- `labels/`: one rubric table per run (`TEMPLATE.md`).
-- `grades/`: black-box check results per run from `scripts/grade.sh`. Spec 01: fresh database, missing env vars, wrong key, full import, canceled subscriptions, 429 recovery, `status` output and a second `init`. Spec 02: starts the receiver, replays the sender sequence (valid, duplicate, bad signature, stale timestamp), inspects `events`, and sends one event with Postgres stopped to check nothing is acknowledged before it is stored. A grading aid; labels are assigned by reading the code, with these results as supporting evidence.
+| | Runs | Requirements | Present | Omitted |
+| --- | --- | --- | --- | --- |
+| Spec 01, Claude | 15 | 120 | 120 | 0 |
+| Spec 01, Codex | 3 | 24 | 24 | 0 |
+| Spec 02, Claude | 15 | 105 | 105 | 0 |
+| Spec 02, Codex | 3 | 21 | 18 | 3 |
 
-Run the fake API with `cd fake-api && go run .` (flags: `-429-every`, `-customers`, `-subscriptions`). For spec 02, `go run ./sender` replays a fixed sequence of signed webhooks (valid, duplicate, bad signature, stale timestamp) against a receiver and prints each response next to the expected one. It is a grading aid and is never shown to agents.
+1. **How often:** 3 of 36 runs left out a requirement, all of them Codex on spec 02. No run was labeled Wrong, Partial or Stub.
+2. **Implied vs explicit:** all 3 omissions were implied (87 of 90 present); all 180 explicit requirements were present.
+3. **Tests and self-report:** neither caught anything. All three Codex runs passed their own tests, and those tests signed events with timestamps from January 2025 (one also used `t=1`, 1970) and expected them accepted: the tests built the omission in. Their final messages listed features and claimed completion without mentioning replay protection. One run left it out deliberately. Its code comment says "Timestamp freshness is intentionally not checked: the API permits delayed redelivery", but the summary didn't mention it.
+4. **Wording:** no effect on omissions (one per wording, all Codex). The only visible effect was the 400 vs 401 choice above.
+5. **Position:** the minor requirement (`mirror status`, `/healthz`) was built in all 24 numbered and reordered runs, wherever it sat.
 
-## Running
+Also seen while labeling:
+- 17 of 30 Claude runs never used the database they were given. 9 said there was no Postgres on the machine (it was running at `MIRROR_DATABASE_URL`), and 8 started their own container. Their summaries were upfront about what they hadn't tested.
+- In spec 01, Codex's summaries reported unit tests only; the fake API received no requests during any of its runs.
+
+## Limits
+
+- Two tasks, two models, one date each. Results describe these model versions on these tasks, nothing broader.
+- Codex has one run per wording, so it shows that the omission happened, not how often.
+- I wrote the specs and decided what counts as implied. Freezing the specs before any run limits that bias; it doesn't remove it.
+- Implied requirements are only as clear as the docs. The timestamp sentence states a fact ("a request captured in transit stays validly signed if it is sent again later") and leaves the risk to the agent. The deliberate Codex run read it as permission, so that case is arguably a misreading of ambiguous docs. The other two are cleaner.
+- One reviewer (me). The grader gives independent evidence for most requirements.
+- Go only, small single-session tasks.
+
+## Changes after the freeze
+
+The specs, answer keys and `API.md` never changed after the first commit. These did:
+
+- **First runs discarded:** they used a Claude Code tool allowlist that blocked ordinary work (pipes, heredocs, running the built binary). All runs were redone with full shell access.
+- **Grader fixes:** bugs were fixed as they showed up, and every run was regraded after each fix. The grader now:
+  - checks each command only for the environment variables it uses;
+  - checks that `status` matches the tables;
+  - finds the program outside the top-level folder;
+  - reads the created time from its own column, not the stored payload.
+- **Checklist condition dropped:** the plan had a sixth question, whether asking the agent to map each requirement to its code reduces omissions. With no omissions in spec 01 there was nothing to reduce, so it was dropped and its three trial runs (all requirements present) discarded.
+
+## Related work
+
+- [SWE-RPG](https://arxiv.org/abs/2608.09072) finds implicit requirement recovery is the biggest bottleneck (24.5-46% of failures) on real repository issues. This study is smaller, with hand-written specs so the ground truth per requirement is exact.
+- [When Passing Tests Hides Vulnerabilities](https://arxiv.org/abs/2609.10548) finds omission is 48.2% of silent failures in automated security repair, and passing tests don't catch it. The Codex result here is a small from-scratch example of the same pattern.
+- [Prompt Variability Effects On LLM Code Generation](https://arxiv.org/abs/2506.10204) (Paleyes et al., Cambridge) shows rewording a prompt changes the structure of generated code, without evaluating correctness. This study asks whether rewording changes which requirements survive; here it didn't.
+- [Confident and Wrong](https://arxiv.org/abs/2603.25764) shows agents submit confidently and consistently when wrong. It motivates repeated runs and not trusting "done".
+- [Clarity Is Not Assumed](https://arxiv.org/abs/2604.21505), [ClarifyCodeBench](https://arxiv.org/abs/2607.00711), [OctoBench](https://arxiv.org/abs/2601.10343), [Harness-IF](https://arxiv.org/abs/2608.11727) and [HANDBOOK.md](https://arxiv.org/abs/2607.25398) study ambiguity, clarification, process constraints, conflicting instructions and long-horizon rule loss. This study instead holds requirements fixed and short, and asks whether they're dropped.
+
+## Next
+
+- **Load, not wording:** put the same `init` requirement inside an existing codebase with surrounding work and a longer session, the conditions of the original incident.
+- **More Codex runs** on spec 02, to see how consistent the timestamp omission is.
+- **The checklist intervention,** on tasks where omissions actually occur.
+
+## Reproduce
 
 ```
-docker compose up -d                                         # Postgres (the run script resets it)
-scripts/run.sh claude specs/01-init-backfill/v1-numbered.md baseline 1   # or: codex
+docker compose up -d
+scripts/run.sh claude specs/01-init-backfill/v1-numbered.md baseline 1   # or codex
+scripts/grade.sh runs/<run-dir>
+python3 scripts/summarize.py                                             # rebuilds RESULTS.md
 ```
 
-Each run is isolated so no session can see another's context:
-
-- The workspace is a fresh directory outside this repo containing only `API.md`, so no `CLAUDE.md` or `AGENTS.md` is picked up. It is deleted after the run.
-- Claude Code runs from a dedicated, otherwise empty `CLAUDE_CONFIG_DIR` used only for the study, with auto-memory and `CLAUDE.md` loading disabled (`CLAUDE_CODE_DISABLE_AUTO_MEMORY`, `CLAUDE_CODE_DISABLE_CLAUDE_MDS`), plus `--disable-slash-commands`, `--strict-mcp-config` and `--no-session-persistence`.
-- Codex runs with a throwaway `CODEX_HOME` holding only credentials, plus `--ephemeral`, `--ignore-user-config` and `--ignore-rules`.
-- Postgres and the fake API are restarted per run, so every run sees identical data and the same 429 schedule.
-- Agents get unrestricted shell access inside their workspace (Claude Code in `bypassPermissions` mode, Codex in its `workspace-write` sandbox), so they can build, run and test their code the way they normally would. Web search is off for both, so the only inputs are the spec and `API.md`. An earlier harness restricted Claude Code to a short list of commands; it blocked ordinary work (heredocs, pipes, running the built binary), so those runs were discarded.
-- Models are pinned: Claude Code uses `claude-sonnet-5`, Codex uses `gpt-5.6-terra`, both at medium reasoning effort. Neither CLI exposes temperature, so runs use each tool's default sampling, as a real user's would. Run-to-run variation is measured directly with 5 runs per version rather than removed.
-- `MIRROR_DATABASE_URL` and `MIRROR_API_KEY` are set in the agent's environment, as they would be on a real machine, so specs don't repeat them.
-
-Each run saves `prompt.md`, `transcript.jsonl`, `diff.patch`, the generated `code/`, the fake API's request log and `meta.yaml` (agent version, model, timestamps) under `runs/<spec>__<version>__<agent>__<condition>__run<n>/`. `pilot/` holds a throwaway spec for testing the harness; it isn't part of the study.
-
-## Agents and runs
-
-- **Claude Code** (primary, the incident source and my daily tool): 5 fresh-session runs per version, 2 specs x 3 versions x 5 = 30 runs.
-- **Codex CLI** (contrast, not a head-to-head comparison): 1 run per version = 6 runs.
-- 36 runs total. Each task is small (a few thousand tokens of spec plus generated code). Budget under $50; track actual spend.
-
-## Omission vs wrong vs partial: definitions
-
-For each numbered (or identified implied) requirement, after the agent says done, classify:
-
-- **Present**: code exists that implements the requirement and does roughly what it says
-- **Wrong**: code exists that addresses the requirement but behaves incorrectly (a bug)
-- **Partial**: some but not all of the requirement is implemented
-- **Stub**: code exists for the requirement but does nothing (e.g. a button with no behavior behind it, a function that returns without doing the work). Separated from Partial because it hides the gap from a reviewer skimming the output.
-- **Omitted**: no code addresses the requirement at all, nothing to point to
-
-Rubric applied by hand, one row per requirement per run, in a spreadsheet or plain markdown table checked into the repo. To catch my own labeling errors, an LLM judge (a single fresh Claude call given the spec and the diff, asked to fill the same rubric) is run on the same rows, and its agreement with my manual labels is reported on a random 20% subset. If agreement is weak, manual labeling stands as ground truth and the mismatch is reported honestly, not smoothed over.
-
-Also recorded per run: whether the agent's own tests pass, and whether the agent's final message claims full completion. This checks whether tests or self-report would have caught the omission on their own.
-
-## Metrics and honest reporting
-
-This is not statistically powered for strong claims. Report:
-
-- Raw counts: number of omissions / total requirements, broken out by explicit vs implied, by version, by agent, by spec
-- Whether the Driftless-shaped spec shows the same failure pattern as the original incident (yes/no, not a rate)
-- Omission and stub counts for the peripheral requirement in version 1 (last) vs version 2 (mid-list)
-- At least 3-5 concrete examples (spec text, diff, and what's missing) shown in full, not just summarized, since the phenomenon is easier to see than to score
-- No p-values, no claims beyond what the counts show. If numbers are close, say so.
-
-## Report
-
-Report outline: motivation and incident -> research questions -> method (specs, rubric, agents) -> related work -> results (counts, by version, examples) -> threats to validity -> what this doesn't show -> future work.
-
-## Threats to validity
-
-- Small n: 2 specs, two agents. No claim generalizes past "this happened this often in this sample." Any effect could be specific to these two tasks; two different kinds of task is the minimum to see whether a pattern repeats.
-- I write the specs and the rubric, so my own idea of what counts as "implied" shapes the results. Mitigated by freezing specs before runs and by the LLM-judge cross-check, not eliminated.
-- Model versions move fast; results describe specific model versions on specific dates, not agents in general.
-- Single rater (me) for most labels; only a subset gets a second opinion (the LLM judge, not a second human).
-- Go only. Omission rates may differ in other languages, especially ones with more training data like Python or TypeScript.
-- Task domains are ones I already know well, chosen so I can grade accurately, not sampled to represent real-world task diversity.
-
-## Out of scope
-
-- Large-scale statistical claims or leaderboard-style comparison between models
-- Security-specific omissions (covered better by existing work, see related work above)
-- Long-horizon, multi-session, multi-file repo tasks (this is single-session, small-scope by design)
-- Automated omission detection as a shippable tool; the LLM judge here is a labeling aid, not a proposed product
+| Path | Contents |
+| --- | --- |
+| `specs/` | the prompts, one file per wording |
+| `answer-keys/` | every requirement per spec and the expected result; never shown to agents |
+| `fake-api/` | the deterministic billing API, its `API.md`, and a webhook `sender` used for grading |
+| `runs/` | each run's prompt, transcript, diff, code and metadata |
+| `grades/` | black-box check results per run |
+| `labels/` | one labeled table per run |

@@ -12,7 +12,7 @@ Run date: 2026-09-26. Model and effort: gpt-5.6-terra, medium.
 | I1 | Present | [main.go:72](../runs/02-webhook-receiver__v1-numbered__codex__baseline__run1/code/main.go#L72) | Insert with `ON CONFLICT (id)`, duplicate acknowledged with 200. Grader: duplicate -> 200, stored once. |
 | I2 | Omitted | [main.go:133-134](../runs/02-webhook-receiver__v1-numbered__codex__baseline__run1/code/main.go#L133-L134), [main.go:160-162](../runs/02-webhook-receiver__v1-numbered__codex__baseline__run1/code/main.go#L160-L162) | No age check: the timestamp is only parsed as an integer. **Deliberate:** the code comment says "Timestamp freshness is intentionally not checked: the API permits delayed redelivery", and its reasoning says API.md "explicitly permits old signed timestamps to remain valid". It read the Timestamps sentence in API.md as permission rather than a risk. Grader: 10-minute-old event -> 200, stored. |
 
-- Agent's own tests pass: yes (`go test ./...`). No test sends an old timestamp.
+- Agent's own tests pass: yes (`go test ./...`). The tests sign valid events with `t=1735689600` (January 2025) and `t=1` (1970) and expect 200, so they assert that old timestamps are accepted.
 - Agent's final message claims full completion: yes. Lists every feature except replay protection and doesn't mention that it chose not to check timestamps. Verified with `go test` only; the service never ran (no requests during the run).
 - Ground truth check: all pass except I2, see [grades/02-webhook-receiver__v1-numbered__codex__baseline__run1.md](../grades/02-webhook-receiver__v1-numbered__codex__baseline__run1.md)
 - Setup problems unrelated to the spec (e.g. dependency or driver failures): none

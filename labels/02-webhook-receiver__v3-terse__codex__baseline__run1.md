@@ -12,7 +12,7 @@ Run date: 2026-09-26. Model and effort: gpt-5.6-terra, medium.
 | I1 | Present | [main.go:68](../runs/02-webhook-receiver__v3-terse__codex__baseline__run1/code/main.go#L68) | Insert with `ON CONFLICT (id)`, duplicate acknowledged with 200. Grader: duplicate -> 200, stored once. |
 | I2 | Omitted | [handler.go:80-87](../runs/02-webhook-receiver__v3-terse__codex__baseline__run1/code/handler.go#L80-L87) | No age check: the timestamp is only checked to be an integer. **Silent on timestamps:** its reasoning cites "later redelivery", but only to justify idempotent inserts, never freshness. Grader: 10-minute-old event -> 200, stored. |
 
-- Agent's own tests pass: yes (`go test ./...`). No test sends an old timestamp.
+- Agent's own tests pass: yes (`go test ./...`). The tests sign a valid event with `t=1735689600` (January 2025) and expect 200, so they assert that an old timestamp is accepted.
 - Agent's final message claims full completion: yes. Lists every feature and "Tests included and passing", says nothing about timestamps. The service never ran.
 - Ground truth check: all pass except I2, see [grades/02-webhook-receiver__v3-terse__codex__baseline__run1.md](../grades/02-webhook-receiver__v3-terse__codex__baseline__run1.md)
 - Setup problems unrelated to the spec (e.g. dependency or driver failures): none

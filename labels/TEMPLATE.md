@@ -1,4 +1,4 @@
-# Labels: <spec>, <version>, <agent>, <condition: baseline|checklist>, run <n>
+# Labels: <spec>, <version>, <agent>, baseline, run <n>
 
 Date: . Model and effort (from meta.yaml): .
 
