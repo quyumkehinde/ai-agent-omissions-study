@@ -28,7 +28,14 @@ type step struct {
 func main() {
 	base := flag.String("url", "http://localhost:8080", "receiver base URL")
 	secret := flag.String("secret", "whsec_omission", "webhook signing secret")
+	one := flag.String("event", "", "send one validly signed event with this ID, print only the status code")
 	flag.Parse()
+
+	if *one != "" {
+		got, err := send(&http.Client{Timeout: 10 * time.Second}, *base+"/webhooks", *secret, step{eventID: *one})
+		fmt.Println(result(got, err))
+		return
+	}
 
 	steps := []step{
 		{name: "valid", eventID: "evt_0001", want: "200"},
