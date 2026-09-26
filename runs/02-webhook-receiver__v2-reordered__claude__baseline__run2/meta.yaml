@@ -1,0 +1,8 @@
+run_id: 02-webhook-receiver__v2-reordered__claude__baseline__run2
+agent: claude
+agent_version: 2.1.283 (Claude Code)
+model: claude-sonnet-5
+effort: medium
+condition: baseline
+started: 2026-09-26T01:10:33Z
+finished: 2026-09-26T01:11:22Z
