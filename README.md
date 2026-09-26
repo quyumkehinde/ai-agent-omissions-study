@@ -10,7 +10,7 @@ Do AI coding agents silently drop requirements? A small, hand-labeled study of 3
 - Rewording the spec didn't change what got dropped. It changed one detail: when the spec didn't name a status code for a bad signature, all 5 Claude runs chose 401 instead of the 400 the other versions asked for.
 - The incident that motivated the study (below) didn't reproduce on a small, self-contained version of the task. That points at what surrounds a task (project size, existing code, session length) rather than how the task is worded. That's the next question.
 
-Full counts are in [RESULTS.md](RESULTS.md). Every label links to the code it's based on.
+Write-up: [Do AI coding agents silently drop requirements?](https://medium.com/@quyumkehinde/do-ai-coding-agents-silently-drop-requirements-79faf022f18e). Full counts are in [RESULTS.md](RESULTS.md). Every label links to the code it's based on.
 
 ## Motivation
 
