@@ -57,8 +57,13 @@ grade_webhook() {
   row E2 "$([[ $bad_ok == yes && $(has evt_0004) == 0 ]] && echo pass || echo FAIL)" "bad signature -> $s5 (want $([[ $run == *v3-terse* ]] && echo 4xx || echo 400)); stored: $(has evt_0004)"
 
   local cols; cols=$(psql_q "select string_agg(column_name||':'||data_type,',' order by ordinal_position) from information_schema.columns where table_name='events'")
-  local full; full=$(psql_q "select count(*) from events e where e::text like '%evt_0001%' and e::text like '%customer.created%' and e::text like '%1735689600%' and e::text like '%cus_0001%'")
-  row E3 "$([[ -n $cols && $full == 1 ]] && echo pass || echo FAIL)" "events($cols); evt_0001 row has id, type, created and payload: $([[ $full == 1 ]] && echo yes || echo no)"
+  local full; full=$(psql_q "select count(*) from events e where e::text like '%evt_0001%' and e::text like '%customer.created%' and e::text like '%cus_0001%'")
+  # The created time must be its own column, not only inside the payload.
+  local ccol; ccol=$(psql_q "select column_name from information_schema.columns where table_name='events' and column_name like '%created%' limit 1")
+  local cval=""
+  [[ -n $ccol ]] && cval=$(psql_q "select case when pg_typeof($ccol)::text like 'timestamp%' then extract(epoch from $ccol)::bigint::text else $ccol::text end from events e where e::text like '%evt_0001%' limit 1")
+  local e3=FAIL; [[ -n $cols && $full == 1 && $cval == 1735689600 ]] && e3=pass
+  row E3 "$e3" "events($cols); evt_0001 row has id, type and payload: $([[ $full == 1 ]] && echo yes || echo no); created column ${ccol:-none} = ${cval:-none} (want 1735689600)"
 
   row I1 "$([[ $s4 == 2* && $(has evt_0002) == 1 ]] && echo pass || echo FAIL)" "duplicate -> $s4; evt_0002 rows: $(has evt_0002) (want 1); total rows: $(psql_q "select count(*) from events")"
   row I2 "$([[ $s6 == 4* && $(has evt_0005) == 0 ]] && echo pass || echo FAIL)" "10-minute-old timestamp -> $s6 (want 4xx); stored: $(has evt_0005)"
