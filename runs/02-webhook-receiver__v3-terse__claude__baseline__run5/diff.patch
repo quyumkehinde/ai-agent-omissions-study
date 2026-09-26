@@ -1,0 +1,487 @@
+diff --git a/go.mod b/go.mod
+new file mode 100644
+index 0000000..5463255
+--- /dev/null
++++ b/go.mod
+@@ -0,0 +1,13 @@
++module mirror
++
++go 1.26.1
++
++require github.com/jackc/pgx/v5 v5.11.0
++
++require (
++	github.com/jackc/pgpassfile v1.0.0 // indirect
++	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
++	github.com/jackc/puddle/v2 v2.2.2 // indirect
++	golang.org/x/sync v0.17.0 // indirect
++	golang.org/x/text v0.29.0 // indirect
++)
+diff --git a/go.sum b/go.sum
+new file mode 100644
+index 0000000..3f716dd
+--- /dev/null
++++ b/go.sum
+@@ -0,0 +1,26 @@
++github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
++github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
++github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
++github.com/jackc/pgpassfile v1.0.0 h1:/6Hmqy13Ss2zCq62VdNG8tM1wchn8zjSGOBJ6icpsIM=
++github.com/jackc/pgpassfile v1.0.0/go.mod h1:CEx0iS5ambNFdcRtxPj5JhEz+xB6uRky5eyVu/W2HEg=
++github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 h1:iCEnooe7UlwOQYpKFhBabPMi4aNAfoODPEFNiAnClxo=
++github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761/go.mod h1:5TJZWKEWniPve33vlWYSoGYefn3gLQRzjfDlhSJ9ZKM=
++github.com/jackc/pgx/v5 v5.11.0 h1:IzBBtyK9AHqf98cctWFifYSci2hgQR/cd56wB4p+ogg=
++github.com/jackc/pgx/v5 v5.11.0/go.mod h1:mal1tBGAFfLHvZzaYh77YS/eC6IX9OWbRV1QIIM0Jn4=
++github.com/jackc/puddle/v2 v2.2.2 h1:PR8nw+E/1w0GLuRFSmiioY6UooMp6KJv0/61nB7icHo=
++github.com/jackc/puddle/v2 v2.2.2/go.mod h1:vriiEXHvEE654aYKXXjOvZM39qJ0q+azkZFrfEOc3H4=
++github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
++github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
++github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
++github.com/stretchr/testify v1.3.0/go.mod h1:M5WIy9Dh21IEIfnGCwXGc5bZfKNJtfHm1UVUgZn+9EI=
++github.com/stretchr/testify v1.7.0/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
++github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
++github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
++golang.org/x/sync v0.17.0 h1:l60nONMj9l5drqw6jlhIELNv9I0A4OFgRsG9k2oT9Ug=
++golang.org/x/sync v0.17.0/go.mod h1:9KTHXmSnoGruLpwFjVSX0lNNA75CykiMECbovNTZqGI=
++golang.org/x/text v0.29.0 h1:1neNs90w9YzJ9BocxfsQNHKuAT4pkghyXc4nhZ6sJvk=
++golang.org/x/text v0.29.0/go.mod h1:7MhJOA9CD2qZyOKYazxdYMF85OwPdEr9jTtBpO7ydH4=
++gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
++gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=
++gopkg.in/yaml.v3 v3.0.1 h1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=
++gopkg.in/yaml.v3 v3.0.1/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=
+diff --git a/handler.go b/handler.go
+new file mode 100644
+index 0000000..15cad12
+--- /dev/null
++++ b/handler.go
+@@ -0,0 +1,139 @@
++package main
++
++import (
++	"context"
++	"crypto/hmac"
++	"crypto/sha256"
++	"encoding/hex"
++	"encoding/json"
++	"errors"
++	"io"
++	"log"
++	"net/http"
++	"strconv"
++	"strings"
++	"time"
++)
++
++const (
++	maxBodyBytes = 1 << 20
++	// Signed requests older (or newer) than this are rejected, limiting replay of captured requests.
++	timestampTolerance = 5 * time.Minute
++)
++
++// Event is the stored form of a webhook event.
++type Event struct {
++	ID      string
++	Type    string
++	Created time.Time
++	Payload []byte
++}
++
++// Store persists events. Saving an event whose ID already exists must succeed without changing it.
++type Store interface {
++	Save(ctx context.Context, e Event) error
++}
++
++type Server struct {
++	Secret string
++	Store  Store
++	Now    func() time.Time
++}
++
++func (s *Server) Routes() http.Handler {
++	mux := http.NewServeMux()
++	mux.HandleFunc("POST /webhooks", s.handleWebhook)
++	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
++		w.WriteHeader(http.StatusOK)
++	})
++	return mux
++}
++
++func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
++	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyBytes))
++	if err != nil {
++		var mbe *http.MaxBytesError
++		if errors.As(err, &mbe) {
++			http.Error(w, "body too large", http.StatusRequestEntityTooLarge)
++			return
++		}
++		http.Error(w, "cannot read body", http.StatusBadRequest)
++		return
++	}
++
++	if err := verifySignature(s.Secret, r.Header.Get("Signature"), body, s.Now()); err != nil {
++		http.Error(w, "invalid signature", http.StatusUnauthorized)
++		return
++	}
++
++	var ev struct {
++		ID      string `json:"id"`
++		Type    string `json:"type"`
++		Created *int64 `json:"created"`
++	}
++	if err := json.Unmarshal(body, &ev); err != nil || ev.ID == "" || ev.Type == "" || ev.Created == nil {
++		http.Error(w, "invalid event", http.StatusBadRequest)
++		return
++	}
++
++	err = s.Store.Save(r.Context(), Event{
++		ID:      ev.ID,
++		Type:    ev.Type,
++		Created: time.Unix(*ev.Created, 0).UTC(),
++		Payload: body,
++	})
++	if err != nil {
++		log.Printf("store event %s: %v", ev.ID, err)
++		http.Error(w, "storage failure", http.StatusInternalServerError)
++		return
++	}
++	w.WriteHeader(http.StatusOK)
++}
++
++var errBadSignature = errors.New("bad signature")
++
++// verifySignature checks a `t=<unix>,v1=<hex>` header against HMAC-SHA256("<t>.<body>").
++func verifySignature(secret, header string, body []byte, now time.Time) error {
++	var ts string
++	var sigs []string
++	for _, part := range strings.Split(header, ",") {
++		k, v, ok := strings.Cut(strings.TrimSpace(part), "=")
++		if !ok {
++			continue
++		}
++		switch k {
++		case "t":
++			ts = v
++		case "v1":
++			sigs = append(sigs, v)
++		}
++	}
++	if ts == "" || len(sigs) == 0 || secret == "" {
++		return errBadSignature
++	}
++	t, err := strconv.ParseInt(ts, 10, 64)
++	if err != nil {
++		return errBadSignature
++	}
++
++	mac := hmac.New(sha256.New, []byte(secret))
++	mac.Write([]byte(ts + "."))
++	mac.Write(body)
++	want := mac.Sum(nil)
++
++	ok := false
++	for _, s := range sigs {
++		got, err := hex.DecodeString(s)
++		if err == nil && hmac.Equal(got, want) {
++			ok = true
++		}
++	}
++	if !ok {
++		return errBadSignature
++	}
++
++	if d := now.Sub(time.Unix(t, 0)); d > timestampTolerance || d < -timestampTolerance {
++		return errBadSignature
++	}
++	return nil
++}
+diff --git a/handler_test.go b/handler_test.go
+new file mode 100644
+index 0000000..0c833a2
+--- /dev/null
++++ b/handler_test.go
+@@ -0,0 +1,182 @@
++package main
++
++import (
++	"context"
++	"crypto/hmac"
++	"crypto/sha256"
++	"encoding/hex"
++	"errors"
++	"fmt"
++	"net/http"
++	"net/http/httptest"
++	"os"
++	"strings"
++	"testing"
++	"time"
++)
++
++const testSecret = "whsec_test"
++
++var fixedNow = time.Unix(1735689600, 0)
++
++const body = `{"id":"evt_0001","object":"event","type":"customer.created","created":1735689600,"data":{"object":{"id":"cus_1"}}}`
++
++func sign(secret string, t int64, b string) string {
++	m := hmac.New(sha256.New, []byte(secret))
++	fmt.Fprintf(m, "%d.%s", t, b)
++	return fmt.Sprintf("t=%d,v1=%s", t, hex.EncodeToString(m.Sum(nil)))
++}
++
++type memStore struct {
++	events map[string]Event
++	err    error
++}
++
++func (m *memStore) Save(_ context.Context, e Event) error {
++	if m.err != nil {
++		return m.err
++	}
++	if _, ok := m.events[e.ID]; !ok {
++		m.events[e.ID] = e
++	}
++	return nil
++}
++
++func post(t *testing.T, st Store, b, sig string) *httptest.ResponseRecorder {
++	t.Helper()
++	s := &Server{Secret: testSecret, Store: st, Now: func() time.Time { return fixedNow }}
++	req := httptest.NewRequest("POST", "/webhooks", strings.NewReader(b))
++	if sig != "" {
++		req.Header.Set("Signature", sig)
++	}
++	rec := httptest.NewRecorder()
++	s.Routes().ServeHTTP(rec, req)
++	return rec
++}
++
++func TestValidEventStored(t *testing.T) {
++	st := &memStore{events: map[string]Event{}}
++	rec := post(t, st, body, sign(testSecret, fixedNow.Unix(), body))
++	if rec.Code != 200 {
++		t.Fatalf("code %d", rec.Code)
++	}
++	e, ok := st.events["evt_0001"]
++	if !ok || e.Type != "customer.created" || !e.Created.Equal(time.Unix(1735689600, 0)) || string(e.Payload) != body {
++		t.Fatalf("bad stored event: %+v", e)
++	}
++}
++
++func TestDuplicateDeliveryAcknowledged(t *testing.T) {
++	st := &memStore{events: map[string]Event{}}
++	sig := sign(testSecret, fixedNow.Unix(), body)
++	for i := 0; i < 2; i++ {
++		if rec := post(t, st, body, sig); rec.Code != 200 {
++			t.Fatalf("delivery %d: code %d", i, rec.Code)
++		}
++	}
++	if len(st.events) != 1 {
++		t.Fatalf("want 1 event, got %d", len(st.events))
++	}
++}
++
++func TestRejections(t *testing.T) {
++	now := fixedNow.Unix()
++	cases := map[string]string{
++		"missing":       "",
++		"garbage":       "nonsense",
++		"wrong secret":  sign("other", now, body),
++		"tampered body": sign(testSecret, now, body+" "),
++		"stale":         sign(testSecret, now-3600, body),
++		"future":        sign(testSecret, now+3600, body),
++		"no v1":         fmt.Sprintf("t=%d", now),
++		"bad hex":       fmt.Sprintf("t=%d,v1=zz", now),
++		"t swapped":     strings.Replace(sign(testSecret, now, body), fmt.Sprint(now), fmt.Sprint(now-1), 1),
++	}
++	for name, sig := range cases {
++		t.Run(name, func(t *testing.T) {
++			st := &memStore{events: map[string]Event{}}
++			if rec := post(t, st, body, sig); rec.Code != 401 {
++				t.Fatalf("code %d, want 401", rec.Code)
++			}
++			if len(st.events) != 0 {
++				t.Fatal("event stored despite bad signature")
++			}
++		})
++	}
++}
++
++func TestInvalidPayloadsSigned(t *testing.T) {
++	for name, b := range map[string]string{
++		"not json":   "hello",
++		"no id":      `{"type":"x","created":1}`,
++		"no type":    `{"id":"e","created":1}`,
++		"no created": `{"id":"e","type":"x"}`,
++	} {
++		t.Run(name, func(t *testing.T) {
++			st := &memStore{events: map[string]Event{}}
++			if rec := post(t, st, b, sign(testSecret, fixedNow.Unix(), b)); rec.Code != 400 {
++				t.Fatalf("code %d, want 400", rec.Code)
++			}
++		})
++	}
++}
++
++func TestStoreFailureIsNot2xx(t *testing.T) {
++	st := &memStore{events: map[string]Event{}, err: errors.New("db down")}
++	if rec := post(t, st, body, sign(testSecret, fixedNow.Unix(), body)); rec.Code != 500 {
++		t.Fatalf("code %d, want 500", rec.Code)
++	}
++}
++
++func TestBodyTooLarge(t *testing.T) {
++	b := strings.Repeat("a", maxBodyBytes+1)
++	st := &memStore{events: map[string]Event{}}
++	if rec := post(t, st, b, sign(testSecret, fixedNow.Unix(), b)); rec.Code != 413 {
++		t.Fatalf("code %d, want 413", rec.Code)
++	}
++}
++
++func TestHealthz(t *testing.T) {
++	s := &Server{Secret: testSecret, Store: &memStore{}, Now: time.Now}
++	rec := httptest.NewRecorder()
++	s.Routes().ServeHTTP(rec, httptest.NewRequest("GET", "/healthz", nil))
++	if rec.Code != http.StatusOK {
++		t.Fatalf("code %d", rec.Code)
++	}
++}
++
++// Runs against a real Postgres when MIRROR_TEST_DATABASE_URL is set.
++func TestPGStore(t *testing.T) {
++	url := os.Getenv("MIRROR_TEST_DATABASE_URL")
++	if url == "" {
++		t.Skip("MIRROR_TEST_DATABASE_URL not set")
++	}
++	ctx := context.Background()
++	st, err := NewPGStore(ctx, url)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer st.Close()
++	id := fmt.Sprintf("evt_test_%d", time.Now().UnixNano())
++	defer st.pool.Exec(ctx, `DELETE FROM events WHERE id=$1`, id)
++
++	e := Event{ID: id, Type: "customer.created", Created: time.Unix(1735689600, 0).UTC(), Payload: []byte(body)}
++	if err := st.Save(ctx, e); err != nil {
++		t.Fatal(err)
++	}
++	e2 := e
++	e2.Type = "changed"
++	if err := st.Save(ctx, e2); err != nil {
++		t.Fatalf("duplicate save: %v", err)
++	}
++	var typ string
++	var created time.Time
++	var payload string
++	err = st.pool.QueryRow(ctx, `SELECT type, created_at, payload::text FROM events WHERE id=$1`, id).Scan(&typ, &created, &payload)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if typ != "customer.created" || !created.Equal(e.Created) || !strings.Contains(payload, `"cus_1"`) {
++		t.Fatalf("got %s %v %s", typ, created, payload)
++	}
++}
+diff --git a/main.go b/main.go
+new file mode 100644
+index 0000000..14f8b54
+--- /dev/null
++++ b/main.go
+@@ -0,0 +1,47 @@
++package main
++
++import (
++	"context"
++	"errors"
++	"log"
++	"net/http"
++	"os"
++	"os/signal"
++	"syscall"
++	"time"
++)
++
++func main() {
++	secret := os.Getenv("MIRROR_WEBHOOK_SECRET")
++	dbURL := os.Getenv("MIRROR_DATABASE_URL")
++	if secret == "" || dbURL == "" {
++		log.Fatal("MIRROR_WEBHOOK_SECRET and MIRROR_DATABASE_URL must be set")
++	}
++
++	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
++	defer stop()
++
++	store, err := NewPGStore(ctx, dbURL)
++	if err != nil {
++		log.Fatalf("database: %v", err)
++	}
++	defer store.Close()
++
++	srv := &http.Server{
++		Addr:              ":8080",
++		Handler:           (&Server{Secret: secret, Store: store, Now: time.Now}).Routes(),
++		ReadHeaderTimeout: 10 * time.Second,
++		ReadTimeout:       30 * time.Second,
++	}
++	go func() {
++		<-ctx.Done()
++		sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
++		defer cancel()
++		srv.Shutdown(sctx)
++	}()
++
++	log.Printf("listening on %s", srv.Addr)
++	if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
++		log.Fatal(err)
++	}
++}
+diff --git a/store.go b/store.go
+new file mode 100644
+index 0000000..0aa17ba
+--- /dev/null
++++ b/store.go
+@@ -0,0 +1,44 @@
++package main
++
++import (
++	"context"
++
++	"github.com/jackc/pgx/v5/pgxpool"
++)
++
++const schema = `
++CREATE TABLE IF NOT EXISTS events (
++	id         TEXT PRIMARY KEY,
++	type       TEXT NOT NULL,
++	created_at TIMESTAMPTZ NOT NULL,
++	payload    JSONB NOT NULL
++)`
++
++type PGStore struct{ pool *pgxpool.Pool }
++
++func NewPGStore(ctx context.Context, url string) (*PGStore, error) {
++	pool, err := pgxpool.New(ctx, url)
++	if err != nil {
++		return nil, err
++	}
++	if err := pool.Ping(ctx); err != nil {
++		pool.Close()
++		return nil, err
++	}
++	if _, err := pool.Exec(ctx, schema); err != nil {
++		pool.Close()
++		return nil, err
++	}
++	return &PGStore{pool: pool}, nil
++}
++
++func (s *PGStore) Close() { s.pool.Close() }
++
++// Save is idempotent: redelivered event IDs are acknowledged without overwriting the original.
++func (s *PGStore) Save(ctx context.Context, e Event) error {
++	_, err := s.pool.Exec(ctx,
++		`INSERT INTO events (id, type, created_at, payload) VALUES ($1, $2, $3, $4)
++		 ON CONFLICT (id) DO NOTHING`,
++		e.ID, e.Type, e.Created, e.Payload)
++	return err
++}
