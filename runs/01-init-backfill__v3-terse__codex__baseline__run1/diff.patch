@@ -1,0 +1,463 @@
+diff --git a/api.go b/api.go
+new file mode 100644
+index 0000000..fd5df30
+--- /dev/null
++++ b/api.go
+@@ -0,0 +1,138 @@
++package main
++
++import (
++	"context"
++	"encoding/json"
++	"fmt"
++	"net/http"
++	"net/url"
++	"strconv"
++	"strings"
++	"time"
++)
++
++type apiClient struct {
++	baseURL string
++	key     string
++	http    *http.Client
++}
++
++func newAPIClient(baseURL, key string) *apiClient {
++	return &apiClient{baseURL: strings.TrimRight(baseURL, "/"), key: key, http: &http.Client{Timeout: 30 * time.Second}}
++}
++
++type customer struct {
++	ID      string `json:"id"`
++	Object  string `json:"object"`
++	Email   string `json:"email"`
++	Name    string `json:"name"`
++	Created int64  `json:"created"`
++}
++
++type subscription struct {
++	ID       string `json:"id"`
++	Object   string `json:"object"`
++	Customer string `json:"customer"`
++	Status   string `json:"status"`
++	Created  int64  `json:"created"`
++}
++
++type listResponse[T any] struct {
++	HasMore bool `json:"has_more"`
++	Data    []T  `json:"data"`
++}
++
++func (c *apiClient) checkAccount(ctx context.Context) error {
++	resp, err := c.get(ctx, "/v1/account", nil)
++	if err != nil {
++		return err
++	}
++	defer resp.Body.Close()
++	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
++		return fmt.Errorf("MIRROR_API_KEY was rejected (HTTP %d)", resp.StatusCode)
++	}
++	if resp.StatusCode/100 != 2 {
++		return responseError(resp)
++	}
++	return nil
++}
++
++func (c *apiClient) get(ctx context.Context, path string, query url.Values) (*http.Response, error) {
++	u := c.baseURL + path
++	if len(query) > 0 {
++		u += "?" + query.Encode()
++	}
++	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
++	if err != nil {
++		return nil, err
++	}
++	req.Header.Set("Authorization", "Bearer "+c.key)
++	return c.http.Do(req)
++}
++
++func responseError(resp *http.Response) error {
++	return fmt.Errorf("API request failed: HTTP %d", resp.StatusCode)
++}
++
++func backfill(ctx context.Context, client *apiClient, dst store) error {
++	if err := fetchAll(ctx, client, "/v1/customers", nil, func(c customer) error { return dst.upsertCustomer(ctx, c) }); err != nil {
++		return fmt.Errorf("backfill customers: %w", err)
++	}
++	q := url.Values{"status": {"all"}}
++	if err := fetchAll(ctx, client, "/v1/subscriptions", q, func(s subscription) error { return dst.upsertSubscription(ctx, s) }); err != nil {
++		return fmt.Errorf("backfill subscriptions: %w", err)
++	}
++	return nil
++}
++
++func fetchAll[T interface{ id() string }](ctx context.Context, client *apiClient, path string, initial url.Values, save func(T) error) error {
++	q := url.Values{"limit": {"100"}}
++	for k, v := range initial {
++		q[k] = append([]string(nil), v...)
++	}
++	for {
++		resp, err := client.get(ctx, path, q)
++		if err != nil {
++			return err
++		}
++		if resp.StatusCode == http.StatusTooManyRequests {
++			wait, _ := strconv.Atoi(resp.Header.Get("Retry-After"))
++			resp.Body.Close()
++			if wait < 1 {
++				wait = 1
++			}
++			select {
++			case <-ctx.Done():
++				return ctx.Err()
++			case <-time.After(time.Duration(wait) * time.Second):
++			}
++			continue
++		}
++		if resp.StatusCode/100 != 2 {
++			err := responseError(resp)
++			resp.Body.Close()
++			return err
++		}
++		var page listResponse[T]
++		err = json.NewDecoder(resp.Body).Decode(&page)
++		resp.Body.Close()
++		if err != nil {
++			return fmt.Errorf("decode response: %w", err)
++		}
++		for _, item := range page.Data {
++			if err := save(item); err != nil {
++				return err
++			}
++		}
++		if !page.HasMore {
++			return nil
++		}
++		if len(page.Data) == 0 {
++			return fmt.Errorf("API returned has_more with an empty page")
++		}
++		q.Set("starting_after", page.Data[len(page.Data)-1].id())
++	}
++}
++
++func (c customer) id() string     { return c.ID }
++func (s subscription) id() string { return s.ID }
+diff --git a/api_test.go b/api_test.go
+new file mode 100644
+index 0000000..e39ef94
+--- /dev/null
++++ b/api_test.go
+@@ -0,0 +1,70 @@
++package main
++
++import (
++	"context"
++	"net/http"
++	"net/http/httptest"
++	"net/url"
++	"reflect"
++	"testing"
++)
++
++type memoryStore struct {
++	customers     []customer
++	subscriptions []subscription
++}
++
++func (m *memoryStore) upsertCustomer(_ context.Context, c customer) error {
++	m.customers = append(m.customers, c)
++	return nil
++}
++func (m *memoryStore) upsertSubscription(_ context.Context, s subscription) error {
++	m.subscriptions = append(m.subscriptions, s)
++	return nil
++}
++
++func TestBackfillPaginatesAndIncludesCanceledSubscriptions(t *testing.T) {
++	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		if r.Header.Get("Authorization") != "Bearer test-key" {
++			t.Errorf("missing auth")
++		}
++		switch r.URL.Path {
++		case "/v1/customers":
++			if r.URL.Query().Get("starting_after") == "cus_1" {
++				_, _ = w.Write([]byte(`{"has_more":false,"data":[{"id":"cus_2","object":"customer","email":"b@example.test","name":"B","created":2}]}`))
++				return
++			}
++			_, _ = w.Write([]byte(`{"has_more":true,"data":[{"id":"cus_1","object":"customer","email":"a@example.test","name":"A","created":1}]}`))
++		case "/v1/subscriptions":
++			if got := r.URL.Query().Get("status"); got != "all" {
++				t.Errorf("status = %q, want all", got)
++			}
++			_, _ = w.Write([]byte(`{"has_more":false,"data":[{"id":"sub_1","object":"subscription","customer":"cus_1","status":"canceled","created":3}]}`))
++		}
++	}))
++	defer server.Close()
++	m := &memoryStore{}
++	if err := backfill(context.Background(), newAPIClient(server.URL, "test-key"), m); err != nil {
++		t.Fatal(err)
++	}
++	if got, want := []string{m.customers[0].ID, m.customers[1].ID, m.subscriptions[0].Status}, []string{"cus_1", "cus_2", "canceled"}; !reflect.DeepEqual(got, want) {
++		t.Fatalf("got %v want %v", got, want)
++	}
++}
++
++func TestCheckAccountRejectsBadKey(t *testing.T) {
++	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusUnauthorized) }))
++	defer server.Close()
++	if err := newAPIClient(server.URL, "bad").checkAccount(context.Background()); err == nil {
++		t.Fatal("expected rejection")
++	}
++}
++
++func TestFetchAllRejectsBrokenPagination(t *testing.T) {
++	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(`{"has_more":true,"data":[]}`)) }))
++	defer server.Close()
++	err := fetchAll(context.Background(), newAPIClient(server.URL, "key"), "/x", url.Values{}, func(customer) error { return nil })
++	if err == nil {
++		t.Fatal("expected pagination error")
++	}
++}
+diff --git a/database.go b/database.go
+new file mode 100644
+index 0000000..fd47532
+--- /dev/null
++++ b/database.go
+@@ -0,0 +1,76 @@
++package main
++
++import (
++	"context"
++	"database/sql"
++	"fmt"
++	"io"
++
++	_ "github.com/jackc/pgx/v5/stdlib"
++)
++
++func openPostgres(url string) (*sql.DB, error) {
++	db, err := sql.Open("pgx", url)
++	if err != nil {
++		return nil, err
++	}
++	return db, nil
++}
++
++func createTables(ctx context.Context, db *sql.DB) error {
++	_, err := db.ExecContext(ctx, `
++CREATE TABLE IF NOT EXISTS customers (
++  id TEXT PRIMARY KEY,
++  object TEXT NOT NULL,
++  email TEXT NOT NULL,
++  name TEXT NOT NULL,
++  created BIGINT NOT NULL
++);
++CREATE TABLE IF NOT EXISTS subscriptions (
++  id TEXT PRIMARY KEY,
++  object TEXT NOT NULL,
++  customer TEXT NOT NULL,
++  status TEXT NOT NULL,
++  created BIGINT NOT NULL
++);`)
++	if err != nil {
++		return fmt.Errorf("create tables: %w", err)
++	}
++	return nil
++}
++
++func printStatus(ctx context.Context, db *sql.DB, out io.Writer) error {
++	for _, table := range []string{"customers", "subscriptions"} {
++		var count int64
++		if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+table).Scan(&count); err != nil {
++			return fmt.Errorf("count %s: %w", table, err)
++		}
++		if _, err := fmt.Fprintf(out, "%s: %d\n", table, count); err != nil {
++			return err
++		}
++	}
++	return nil
++}
++
++type store interface {
++	upsertCustomer(context.Context, customer) error
++	upsertSubscription(context.Context, subscription) error
++}
++
++type sqlStore struct{ db *sql.DB }
++
++func (s sqlStore) upsertCustomer(ctx context.Context, c customer) error {
++	_, err := s.db.ExecContext(ctx, `INSERT INTO customers (id, object, email, name, created)
++VALUES ($1, $2, $3, $4, $5)
++ON CONFLICT (id) DO UPDATE SET object = EXCLUDED.object, email = EXCLUDED.email,
++name = EXCLUDED.name, created = EXCLUDED.created`, c.ID, c.Object, c.Email, c.Name, c.Created)
++	return err
++}
++
++func (s sqlStore) upsertSubscription(ctx context.Context, sub subscription) error {
++	_, err := s.db.ExecContext(ctx, `INSERT INTO subscriptions (id, object, customer, status, created)
++VALUES ($1, $2, $3, $4, $5)
++ON CONFLICT (id) DO UPDATE SET object = EXCLUDED.object, customer = EXCLUDED.customer,
++status = EXCLUDED.status, created = EXCLUDED.created`, sub.ID, sub.Object, sub.Customer, sub.Status, sub.Created)
++	return err
++}
+diff --git a/go.mod b/go.mod
+new file mode 100644
+index 0000000..6f83d9f
+--- /dev/null
++++ b/go.mod
+@@ -0,0 +1,14 @@
++module mirror
++
++go 1.23
++
++require github.com/jackc/pgx/v5 v5.7.2
++
++require (
++	github.com/jackc/pgpassfile v1.0.0 // indirect
++	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
++	github.com/jackc/puddle/v2 v2.2.2 // indirect
++	golang.org/x/crypto v0.31.0 // indirect
++	golang.org/x/sync v0.10.0 // indirect
++	golang.org/x/text v0.21.0 // indirect
++)
+diff --git a/go.sum b/go.sum
+new file mode 100644
+index 0000000..731b5df
+--- /dev/null
++++ b/go.sum
+@@ -0,0 +1,28 @@
++github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
++github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
++github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
++github.com/jackc/pgpassfile v1.0.0 h1:/6Hmqy13Ss2zCq62VdNG8tM1wchn8zjSGOBJ6icpsIM=
++github.com/jackc/pgpassfile v1.0.0/go.mod h1:CEx0iS5ambNFdcRtxPj5JhEz+xB6uRky5eyVu/W2HEg=
++github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 h1:iCEnooe7UlwOQYpKFhBabPMi4aNAfoODPEFNiAnClxo=
++github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761/go.mod h1:5TJZWKEWniPve33vlWYSoGYefn3gLQRzjfDlhSJ9ZKM=
++github.com/jackc/pgx/v5 v5.7.2 h1:mLoDLV6sonKlvjIEsV56SkWNCnuNv531l94GaIzO+XI=
++github.com/jackc/pgx/v5 v5.7.2/go.mod h1:ncY89UGWxg82EykZUwSpUKEfccBGGYq1xjrOpsbsfGQ=
++github.com/jackc/puddle/v2 v2.2.2 h1:PR8nw+E/1w0GLuRFSmiioY6UooMp6KJv0/61nB7icHo=
++github.com/jackc/puddle/v2 v2.2.2/go.mod h1:vriiEXHvEE654aYKXXjOvZM39qJ0q+azkZFrfEOc3H4=
++github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
++github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
++github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
++github.com/stretchr/testify v1.3.0/go.mod h1:M5WIy9Dh21IEIfnGCwXGc5bZfKNJtfHm1UVUgZn+9EI=
++github.com/stretchr/testify v1.7.0/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
++github.com/stretchr/testify v1.8.1 h1:w7B6lhMri9wdJUVmEZPGGhZzrYTPvgJArz7wNPgYKsk=
++github.com/stretchr/testify v1.8.1/go.mod h1:w2LPCIKwWwSfY2zedu0+kehJoqGctiVI29o6fzry7u4=
++golang.org/x/crypto v0.31.0 h1:ihbySMvVjLAeSH1IbfcRTkD/iNscyz8rGzjF/E5hV6U=
++golang.org/x/crypto v0.31.0/go.mod h1:kDsLvtWBEx7MV9tJOj9bnXsPbxwJQ6csT/x4KIN4Ssk=
++golang.org/x/sync v0.10.0 h1:3NQrjDixjgGwUOCaF8w2+VYHv0Ve/vGYSbdkTa98gmQ=
++golang.org/x/sync v0.10.0/go.mod h1:Czt+wKu1gCyEFDUtn0jG5QVvpJ6rzVqr5aXyt9drQfk=
++golang.org/x/text v0.21.0 h1:zyQAAkrwaneQ066sspRyJaG9VNi/YJ1NfzcGB3hZ/qo=
++golang.org/x/text v0.21.0/go.mod h1:4IBbMaMmOPCJ8SecivzSH54+73PCFmPWxNTLm+vZkEQ=
++gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
++gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=
++gopkg.in/yaml.v3 v3.0.1 h1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=
++gopkg.in/yaml.v3 v3.0.1/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=
+diff --git a/main.go b/main.go
+new file mode 100644
+index 0000000..ceed624
+--- /dev/null
++++ b/main.go
+@@ -0,0 +1,65 @@
++package main
++
++import (
++	"context"
++	"database/sql"
++	"errors"
++	"fmt"
++	"os"
++)
++
++func main() {
++	if err := run(context.Background(), os.Args[1:], os.Getenv, openPostgres, os.Stdout); err != nil {
++		fmt.Fprintln(os.Stderr, "mirror:", err)
++		os.Exit(1)
++	}
++}
++
++type getenv func(string) string
++type dbOpener func(string) (*sql.DB, error)
++
++func run(ctx context.Context, args []string, env getenv, open dbOpener, out interface{ Write([]byte) (int, error) }) error {
++	if len(args) != 1 || (args[0] != "init" && args[0] != "status") {
++		return errors.New("usage: mirror <init|status>")
++	}
++	databaseURL := env("MIRROR_DATABASE_URL")
++	if databaseURL == "" {
++		return errors.New("MIRROR_DATABASE_URL is required")
++	}
++	var client *apiClient
++	if args[0] == "init" {
++		apiKey := env("MIRROR_API_KEY")
++		if apiKey == "" {
++			return errors.New("MIRROR_API_KEY is required")
++		}
++		client = newAPIClient(apiBaseURL(env), apiKey)
++	}
++	db, err := open(databaseURL)
++	if err != nil {
++		return fmt.Errorf("open database: %w", err)
++	}
++	defer db.Close()
++
++	if args[0] == "status" {
++		return printStatus(ctx, db, out)
++	}
++
++	if err := client.checkAccount(ctx); err != nil {
++		return err
++	}
++	if err := createTables(ctx, db); err != nil {
++		return err
++	}
++	if err := backfill(ctx, client, sqlStore{db}); err != nil {
++		return err
++	}
++	_, err = fmt.Fprintln(out, "Backfill complete.")
++	return err
++}
++
++func apiBaseURL(env getenv) string {
++	if base := env("MIRROR_API_BASE_URL"); base != "" {
++		return base
++	}
++	return "http://localhost:12111"
++}
+diff --git a/main_test.go b/main_test.go
+new file mode 100644
+index 0000000..70f8d0d
+--- /dev/null
++++ b/main_test.go
+@@ -0,0 +1,30 @@
++package main
++
++import (
++	"bytes"
++	"context"
++	"database/sql"
++	"errors"
++	"strings"
++	"testing"
++)
++
++func TestRunNamesMissingDatabaseURL(t *testing.T) {
++	err := run(context.Background(), []string{"init"}, func(string) string { return "" }, func(string) (*sql.DB, error) { return nil, errors.New("should not open") }, &bytes.Buffer{})
++	if err == nil || !strings.Contains(err.Error(), "MIRROR_DATABASE_URL") {
++		t.Fatalf("got %v", err)
++	}
++}
++
++func TestRunNamesMissingAPIKey(t *testing.T) {
++	env := func(k string) string {
++		if k == "MIRROR_DATABASE_URL" {
++			return "postgres://example"
++		}
++		return ""
++	}
++	err := run(context.Background(), []string{"init"}, env, func(string) (*sql.DB, error) { return &sql.DB{}, nil }, &bytes.Buffer{})
++	if err == nil || !strings.Contains(err.Error(), "MIRROR_API_KEY") {
++		t.Fatalf("got %v", err)
++	}
++}

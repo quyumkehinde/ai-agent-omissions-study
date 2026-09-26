@@ -1,0 +1,8 @@
+run_id: 01-init-backfill__v2-reordered__codex__baseline__run1
+agent: codex
+agent_version: codex-cli 0.153.4
+model: gpt-5.6-terra
+effort: medium
+condition: baseline
+started: 2026-09-25T23:52:54Z
+finished: 2026-09-25T23:55:18Z
