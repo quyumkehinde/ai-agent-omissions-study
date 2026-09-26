@@ -1,0 +1,377 @@
+diff --git a/README.md b/README.md
+new file mode 100644
+index 0000000..80a02d7
+--- /dev/null
++++ b/README.md
+@@ -0,0 +1,15 @@
++# Webhook receiver
++
++Set the endpoint signing secret and PostgreSQL connection URL, then run the service:
++
++```sh
++export MIRROR_WEBHOOK_SECRET=whsec_example
++export MIRROR_DATABASE_URL='postgres://user:password@localhost:5432/mirror?sslmode=disable'
++go run .
++```
++
++The server listens on port 8080. `POST /webhooks` verifies the API signature and persists the raw JSON event before responding `200`. `GET /healthz` returns `200`.
++
++The `events` table is created automatically. Event IDs are primary keys, so webhook redelivery is idempotently acknowledged.
++
++Run tests with `go test ./...`.
+diff --git a/go.mod b/go.mod
+new file mode 100644
+index 0000000..61236a0
+--- /dev/null
++++ b/go.mod
+@@ -0,0 +1,13 @@
++module webhookreceiver
++
++go 1.24.0
++
++require github.com/jackc/pgx/v5 v5.8.0
++
++require (
++	github.com/jackc/pgpassfile v1.0.0 // indirect
++	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
++	github.com/jackc/puddle/v2 v2.2.2 // indirect
++	golang.org/x/sync v0.17.0 // indirect
++	golang.org/x/text v0.29.0 // indirect
++)
+diff --git a/go.sum b/go.sum
+new file mode 100644
+index 0000000..87a6c8a
+--- /dev/null
++++ b/go.sum
+@@ -0,0 +1,26 @@
++github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
++github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
++github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
++github.com/jackc/pgpassfile v1.0.0 h1:/6Hmqy13Ss2zCq62VdNG8tM1wchn8zjSGOBJ6icpsIM=
++github.com/jackc/pgpassfile v1.0.0/go.mod h1:CEx0iS5ambNFdcRtxPj5JhEz+xB6uRky5eyVu/W2HEg=
++github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 h1:iCEnooe7UlwOQYpKFhBabPMi4aNAfoODPEFNiAnClxo=
++github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761/go.mod h1:5TJZWKEWniPve33vlWYSoGYefn3gLQRzjfDlhSJ9ZKM=
++github.com/jackc/pgx/v5 v5.8.0 h1:TYPDoleBBme0xGSAX3/+NujXXtpZn9HBONkQC7IEZSo=
++github.com/jackc/pgx/v5 v5.8.0/go.mod h1:QVeDInX2m9VyzvNeiCJVjCkNFqzsNb43204HshNSZKw=
++github.com/jackc/puddle/v2 v2.2.2 h1:PR8nw+E/1w0GLuRFSmiioY6UooMp6KJv0/61nB7icHo=
++github.com/jackc/puddle/v2 v2.2.2/go.mod h1:vriiEXHvEE654aYKXXjOvZM39qJ0q+azkZFrfEOc3H4=
++github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
++github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
++github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
++github.com/stretchr/testify v1.3.0/go.mod h1:M5WIy9Dh21IEIfnGCwXGc5bZfKNJtfHm1UVUgZn+9EI=
++github.com/stretchr/testify v1.7.0/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
++github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
++github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
++golang.org/x/sync v0.17.0 h1:l60nONMj9l5drqw6jlhIELNv9I0A4OFgRsG9k2oT9Ug=
++golang.org/x/sync v0.17.0/go.mod h1:9KTHXmSnoGruLpwFjVSX0lNNA75CykiMECbovNTZqGI=
++golang.org/x/text v0.29.0 h1:1neNs90w9YzJ9BocxfsQNHKuAT4pkghyXc4nhZ6sJvk=
++golang.org/x/text v0.29.0/go.mod h1:7MhJOA9CD2qZyOKYazxdYMF85OwPdEr9jTtBpO7ydH4=
++gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
++gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=
++gopkg.in/yaml.v3 v3.0.1 h1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=
++gopkg.in/yaml.v3 v3.0.1/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=
+diff --git a/main.go b/main.go
+new file mode 100644
+index 0000000..e2cdc94
+--- /dev/null
++++ b/main.go
+@@ -0,0 +1,192 @@
++package main
++
++import (
++	"context"
++	"crypto/hmac"
++	"crypto/sha256"
++	"encoding/hex"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"io"
++	"log"
++	"net/http"
++	"os"
++	"strconv"
++	"strings"
++	"time"
++
++	"github.com/jackc/pgx/v5/pgxpool"
++)
++
++const maxBodyBytes = 1 << 20 // webhook payloads larger than 1 MiB are rejected
++
++type event struct {
++	ID      string          `json:"id"`
++	Type    string          `json:"type"`
++	Created int64           `json:"created"`
++	Data    json.RawMessage `json:"data"`
++}
++
++// EventStore makes the HTTP handling independent of Postgres and easy to test.
++type EventStore interface {
++	Store(ctx context.Context, e event, payload []byte) error
++}
++
++type postgresStore struct {
++	pool *pgxpool.Pool
++}
++
++func newPostgresStore(ctx context.Context, databaseURL string) (*postgresStore, error) {
++	pool, err := pgxpool.New(ctx, databaseURL)
++	if err != nil {
++		return nil, fmt.Errorf("connect to postgres: %w", err)
++	}
++
++	store := &postgresStore{pool: pool}
++	if err := store.createTable(ctx); err != nil {
++		pool.Close()
++		return nil, err
++	}
++	return store, nil
++}
++
++func (s *postgresStore) createTable(ctx context.Context) error {
++	_, err := s.pool.Exec(ctx, `
++		CREATE TABLE IF NOT EXISTS events (
++			id TEXT PRIMARY KEY,
++			type TEXT NOT NULL,
++			created_at TIMESTAMPTZ NOT NULL,
++			payload JSONB NOT NULL
++		)`)
++	if err != nil {
++		return fmt.Errorf("create events table: %w", err)
++	}
++	return nil
++}
++
++func (s *postgresStore) Store(ctx context.Context, e event, payload []byte) error {
++	_, err := s.pool.Exec(ctx, `
++		INSERT INTO events (id, type, created_at, payload)
++		VALUES ($1, $2, $3, $4::jsonb)
++		ON CONFLICT (id) DO NOTHING`,
++		e.ID, e.Type, time.Unix(e.Created, 0).UTC(), string(payload))
++	if err != nil {
++		return fmt.Errorf("insert event: %w", err)
++	}
++	return nil
++}
++
++func (s *postgresStore) Close() { s.pool.Close() }
++
++type server struct {
++	secret []byte
++	store  EventStore
++}
++
++func (s *server) routes() http.Handler {
++	mux := http.NewServeMux()
++	mux.HandleFunc("/healthz", s.healthz)
++	mux.HandleFunc("/webhooks", s.webhooks)
++	return mux
++}
++
++func (s *server) healthz(w http.ResponseWriter, r *http.Request) {
++	if r.Method != http.MethodGet {
++		w.WriteHeader(http.StatusMethodNotAllowed)
++		return
++	}
++	w.WriteHeader(http.StatusOK)
++}
++
++func (s *server) webhooks(w http.ResponseWriter, r *http.Request) {
++	if r.Method != http.MethodPost {
++		w.WriteHeader(http.StatusMethodNotAllowed)
++		return
++	}
++	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
++	payload, err := io.ReadAll(r.Body)
++	if err != nil {
++		http.Error(w, "invalid request body", http.StatusBadRequest)
++		return
++	}
++
++	if !verifySignature(r.Header.Get("Signature"), payload, s.secret) {
++		http.Error(w, "invalid signature", http.StatusBadRequest)
++		return
++	}
++
++	var e event
++	if err := json.Unmarshal(payload, &e); err != nil || e.ID == "" || e.Type == "" {
++		http.Error(w, "invalid event payload", http.StatusBadRequest)
++		return
++	}
++
++	if err := s.store.Store(r.Context(), e, payload); err != nil {
++		log.Printf("store webhook event %q: %v", e.ID, err)
++		http.Error(w, "could not store event", http.StatusInternalServerError)
++		return
++	}
++	w.WriteHeader(http.StatusOK)
++}
++
++// verifySignature validates t=<unix seconds>,v1=<hex HMAC-SHA256>. Timestamp
++// freshness is intentionally not checked: the API permits delayed redelivery.
++func verifySignature(header string, body, secret []byte) bool {
++	var timestamp, signature string
++	for _, part := range strings.Split(header, ",") {
++		key, value, ok := strings.Cut(strings.TrimSpace(part), "=")
++		if !ok {
++			return false
++		}
++		switch key {
++		case "t":
++			if timestamp != "" {
++				return false
++			}
++			timestamp = value
++		case "v1":
++			if signature != "" {
++				return false
++			}
++			signature = value
++		default:
++			return false
++		}
++	}
++	if timestamp == "" || signature == "" {
++		return false
++	}
++	if _, err := strconv.ParseInt(timestamp, 10, 64); err != nil {
++		return false
++	}
++	received, err := hex.DecodeString(signature)
++	if err != nil || len(received) != sha256.Size {
++		return false
++	}
++
++	mac := hmac.New(sha256.New, secret)
++	_, _ = mac.Write([]byte(timestamp))
++	_, _ = mac.Write([]byte("."))
++	_, _ = mac.Write(body)
++	return hmac.Equal(mac.Sum(nil), received)
++}
++
++func main() {
++	secret := os.Getenv("MIRROR_WEBHOOK_SECRET")
++	databaseURL := os.Getenv("MIRROR_DATABASE_URL")
++	if secret == "" || databaseURL == "" {
++		log.Fatal("MIRROR_WEBHOOK_SECRET and MIRROR_DATABASE_URL must be set")
++	}
++
++	store, err := newPostgresStore(context.Background(), databaseURL)
++	if err != nil {
++		log.Fatal(err)
++	}
++	defer store.Close()
++
++	log.Printf("listening on :8080")
++	if err := http.ListenAndServe(":8080", (&server{secret: []byte(secret), store: store}).routes()); !errors.Is(err, http.ErrServerClosed) {
++		log.Fatal(err)
++	}
++}
+diff --git a/main_test.go b/main_test.go
+new file mode 100644
+index 0000000..7d08c9c
+--- /dev/null
++++ b/main_test.go
+@@ -0,0 +1,101 @@
++package main
++
++import (
++	"context"
++	"crypto/hmac"
++	"crypto/sha256"
++	"encoding/hex"
++	"errors"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"testing"
++)
++
++type memoryStore struct {
++	event   event
++	payload []byte
++	err     error
++	calls   int
++}
++
++func (m *memoryStore) Store(_ context.Context, e event, payload []byte) error {
++	m.calls++
++	m.event, m.payload = e, append([]byte(nil), payload...)
++	return m.err
++}
++
++func signedHeader(t, body, secret string) string {
++	mac := hmac.New(sha256.New, []byte(secret))
++	mac.Write([]byte(t + "." + body))
++	return "t=" + t + ",v1=" + hex.EncodeToString(mac.Sum(nil))
++}
++
++func TestWebhookStoresVerifiedEvent(t *testing.T) {
++	const secret = "whsec_test"
++	body := `{"id":"evt_0001","object":"event","type":"customer.created","created":1735689600,"data":{"object":{"id":"cus_1"}}}`
++	store := &memoryStore{}
++	s := &server{secret: []byte(secret), store: store}
++	req := httptest.NewRequest(http.MethodPost, "/webhooks", strings.NewReader(body))
++	req.Header.Set("Signature", signedHeader("1735689600", body, secret))
++	response := httptest.NewRecorder()
++
++	s.routes().ServeHTTP(response, req)
++	if response.Code != http.StatusOK {
++		t.Fatalf("status = %d, want 200; body = %s", response.Code, response.Body.String())
++	}
++	if store.calls != 1 || store.event.ID != "evt_0001" || string(store.payload) != body {
++		t.Fatalf("store received calls=%d event=%+v payload=%q", store.calls, store.event, store.payload)
++	}
++}
++
++func TestWebhookRejectsInvalidSignature(t *testing.T) {
++	store := &memoryStore{}
++	s := &server{secret: []byte("secret"), store: store}
++	req := httptest.NewRequest(http.MethodPost, "/webhooks", strings.NewReader(`{"id":"evt_1","type":"customer.created","created":1}`))
++	req.Header.Set("Signature", "t=1,v1=deadbeef")
++	response := httptest.NewRecorder()
++
++	s.routes().ServeHTTP(response, req)
++	if response.Code != http.StatusBadRequest || store.calls != 0 {
++		t.Fatalf("status=%d store calls=%d, want 400 and 0", response.Code, store.calls)
++	}
++}
++
++func TestWebhookOnlyAcknowledgesAfterStorage(t *testing.T) {
++	const secret = "secret"
++	body := `{"id":"evt_1","type":"customer.created","created":1}`
++	store := &memoryStore{err: errors.New("database unavailable")}
++	s := &server{secret: []byte(secret), store: store}
++	req := httptest.NewRequest(http.MethodPost, "/webhooks", strings.NewReader(body))
++	req.Header.Set("Signature", signedHeader("1", body, secret))
++	response := httptest.NewRecorder()
++
++	s.routes().ServeHTTP(response, req)
++	if response.Code != http.StatusInternalServerError || store.calls != 1 {
++		t.Fatalf("status=%d store calls=%d, want 500 and 1", response.Code, store.calls)
++	}
++}
++
++func TestHealthz(t *testing.T) {
++	s := &server{store: &memoryStore{}}
++	response := httptest.NewRecorder()
++	s.routes().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/healthz", nil))
++	if response.Code != http.StatusOK {
++		t.Fatalf("status = %d, want 200", response.Code)
++	}
++}
++
++func TestVerifySignature(t *testing.T) {
++	body := []byte(`{"id":"evt"}`)
++	header := signedHeader("123", string(body), "secret")
++	if !verifySignature(header, body, []byte("secret")) {
++		t.Fatal("valid signature was rejected")
++	}
++	if verifySignature(header, []byte(`{"id":"changed"}`), []byte("secret")) {
++		t.Fatal("changed body was accepted")
++	}
++	if verifySignature("t=not-a-time,v1=00", body, []byte("secret")) {
++		t.Fatal("invalid timestamp was accepted")
++	}
++}
